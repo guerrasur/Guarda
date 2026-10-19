@@ -91,6 +91,8 @@ await test('an undo failure leaves its error message visible instead of hiding t
  const original=GuardaStore.prototype.putNote,log=console.error;GuardaStore.prototype.putNote=async()=>{throw new Error('Fallo de guardado de prueba');};console.error=()=>{};
  try{await $('toast').querySelector('button').onclick();assert.equal($('toast').hidden,false);assert.match($('toast').textContent,/Fallo de guardado de prueba/);assert.equal((await store.allNotes()).find(n=>n.id===id).archived,true);}finally{GuardaStore.prototype.putNote=original;console.error=log;}
 });
-await test('Drive configuration starts disabled until an OAuth client ID is supplied and keeps local notes',async()=>{
- const count=(await store.allNotes()).length;$('settings-toggle').onclick();$('drive-settings').onclick();await until(()=>$('drive-panel-status'));assert.match($('drive-panel-status').textContent,/Falta configurar/);assert.equal($('drive-connect').disabled,true);assert.equal($('drive-client-id').value,'');assert.equal((await store.allNotes()).length,count);$('utility-dialog').close();
+await test('Drive is preconfigured for GuardaNote and enables connection without requesting access automatically',async()=>{
+ const {GOOGLE_CLIENT_ID}=await import('../src/drive-config.js');let requested=0,configured;
+ globalThis.google={accounts:{oauth2:{initTokenClient:options=>{configured=options;return {requestAccessToken:()=>requested++};}}}};
+ try{const count=(await store.allNotes()).length;$('settings-toggle').onclick();$('drive-settings').onclick();await until(()=>$('drive-panel-status')&&$('drive-connect').disabled===false);assert.equal($('drive-client-id').value,GOOGLE_CLIENT_ID);assert.equal(configured.client_id,GOOGLE_CLIENT_ID);assert.equal(requested,0);assert.equal((await store.allNotes()).length,count);$('utility-dialog').close();}finally{delete globalThis.google;}
 });

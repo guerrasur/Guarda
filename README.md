@@ -18,7 +18,7 @@ Abrir la publicación de GitHub Pages del repositorio. En iPhone: Safari → Com
 
 ## Datos locales
 
-El guardado local no requiere cuenta. La sincronización opcional usa el Drive de cada persona, sin servidor de datos propio. Requiere configurar el ID público de OAuth; mientras no esté configurado o conectado, cada navegador/dispositivo conserva sus propias notas. Borrar datos del navegador puede eliminarlas; exportar copias desde Configuración. La app solicita almacenamiento persistente cuando el navegador lo permite.
+El guardado local no requiere cuenta. La sincronización opcional usa el Drive de cada persona, sin servidor de datos propio. El ID público de OAuth de GuardaNote está configurado; mientras no se conecte una cuenta, cada navegador/dispositivo conserva sus propias notas. Borrar datos del navegador puede eliminarlas; exportar copias desde Configuración. La app solicita almacenamiento persistente cuando el navegador lo permite.
 
 La captura del micrófono necesita HTTPS o localhost y permiso del usuario. Se prioriza audio/mp4 en Safari y se elige un formato compatible en otros navegadores. Al pasar la app al fondo, se intenta detener y guardar la grabación; los fragmentos ya persistidos se recuperan al reabrir. No se promete grabación continua con el iPhone bloqueado.
 
@@ -62,6 +62,6 @@ En v0.3.2 se corrigieron cierres simultáneos del editor, mensajes de error al d
 
 ## Google Drive (v0.4.0)
 
-Conexión opcional desde Configuración → Google Drive. Implementa sincronización de notas, listas, etiquetas y archivos con la cuenta de cada usuario, conservación de conflictos y protección transaccional de ediciones locales. Falta configurar el ID de OAuth para habilitar la autorización real. Los tokens solo viven en memoria y puede ser necesario reconectar al reabrir la app o vencer la sesión. No se activan servicios pagos desde Guarda.
+Conexión opcional desde Configuración → Google Drive. Implementa sincronización de notas, listas, etiquetas y archivos con la cuenta de cada usuario, conservación de conflictos y protección transaccional de ediciones locales. El ID público de OAuth de GuardaNote está incorporado desde v0.4.1. La primera autorización real debe completarse en Google desde Conectar Google Drive. Los tokens solo viven en memoria y puede ser necesario reconectar al reabrir la app o vencer la sesión. No se activan servicios pagos desde Guarda.
 
 [Configuración y límites de Google Drive](docs/google-drive.md). [Privacidad](https://guerrasur.github.io/Guarda/privacidad.html).

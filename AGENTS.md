@@ -16,4 +16,4 @@ Sistema adaptado de guerrasur/abridorsimuleitor/updater.js.
 - Estado local y cuenta vinculada no deben mezclarse con otras cuentas ni exportarse como configuración de otro dispositivo.
 - Preservar relojes vectoriales, copias de conflictos y marcadores de eliminación. Validar archivos antes de modificarlos.
 - Aplicar descargas solo si la revisión local no cambió durante la red; respetar editores/grabación y Web Locks.
-- Las pruebas con OAuth/Drive simulado no acreditan autorización real; falta Client ID y cuenta de prueba. Ver docs/google-drive.md.
+- Las pruebas con OAuth/Drive simulado no acreditan autorización real; el Client ID de GuardaNote está configurado; la autorización real requiere una cuenta autorizada. Ver docs/google-drive.md.

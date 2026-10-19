@@ -1,6 +1,6 @@
 # Activar Google Drive en Guarda
 
-La integración está implementada. Falta crear un **ID público de cliente OAuth** y configurarlo. No se utiliza secreto, contraseña, clave de API, servidor propio ni cuenta de servicio. No activar facturación ni una prueba de pago para esta configuración.
+La integración está implementada y el **ID público de cliente OAuth de GuardaNote** está configurado desde v0.4.1. Los pasos siguientes documentan la configuración y sirven para revisar o recrear el cliente. No se utiliza secreto, contraseña, clave de API, servidor propio ni cuenta de servicio. No activar facturación ni una prueba de pago para esta configuración.
 
 ## Configuración inicial del administrador
 
