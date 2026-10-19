@@ -8,3 +8,9 @@ await test('manifest and offline shell point only to files shipped with the app'
  let response;listeners.fetch({request:{url:origin+'/',method:'GET',mode:'navigate'},respondWith:p=>response=p});assert.equal((await response).cached,origin+'/index.html');
  response=undefined;listeners.fetch({request:{url:'blob:audio',method:'GET'},respondWith:p=>response=p});assert.equal(response,undefined,'local audio is not fetched or uploaded');
 });
+await test('worker only skips waiting on request and reports its staged release',async()=>{
+ const listeners={};let skips=0,info;
+ vm.runInNewContext(await readFile('sw.js','utf8'),{self:{addEventListener:(name,f)=>listeners[name]=f,skipWaiting:()=>skips++}});
+ assert.equal(skips,0);listeners.message({data:{type:'RELEASE_INFO'},ports:[{postMessage:value=>info=value}]});assert.equal(info.version,'GUARDA_APP_VERSION');assert.equal(info.build,'GUARDA_BUILD_VERSION');assert.equal(skips,0);
+ listeners.message({data:{type:'SKIP_WAITING'}});assert.equal(skips,1);
+});

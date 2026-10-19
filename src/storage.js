@@ -83,6 +83,8 @@ export class GuardaStore extends EventTarget {
       throw storageError(error);
     }
   }
+  // A transaction covering every store waits for prior writes to commit.
+  whenIdle() { return this._run(STORES, 'readonly', () => {}); }
   allNotes() { return this._run(['notes'], 'readonly', tx => requestResult(tx.objectStore('notes').getAll())); }
   async putNote(note) {
     validateNote(note);

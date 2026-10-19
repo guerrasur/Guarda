@@ -42,8 +42,18 @@ El código de aplicación no depende de bibliotecas externas ni carga fuentes o 
 
 ## Verificación
 
-23 pruebas automatizadas: persistencia tras reapertura, orden por edición y ajuste persistido, listas/archivo/restauración, sanitización, audio adjunto, MIME compatible, pausa/reanudación, fallos de permisos y almacenamiento, recuperación, backup con bytes originales y shell offline.
+30 pruebas automatizadas: persistencia tras reapertura, orden por edición y ajuste persistido, listas/archivo/restauración, sanitización, audio adjunto, MIME compatible, pausa/reanudación, fallos de permisos y almacenamiento, recuperación, backup con bytes originales y shell offline.
 
 Se verificó la carga de la publicación de Pages en un navegador real. Las pruebas automatizadas usan un DOM simulado y IndexedDB simulado; la grabación/instalación en un iPhone físico queda pendiente de comprobar.
 
 [Registro de observaciones de Keep y límites de REA](docs/keep-observaciones.md).
+
+## Actualizaciones
+
+Sistema adaptado de `guerrasur/abridorsimuleitor`. La versión aparece debajo del nombre Guarda y el botón **Actualizar** está al pie del tablero. Busca una versión mayor al abrir, cada cinco minutos, al volver a la app y al recuperar conexión. La actualización se aplica automáticamente cuando no hay nota, diálogo, grabación o reproducción en curso, después de confirmar los guardados de IndexedDB. No borra notas, audios ni ajustes.
+
+El build genera `version.json` con SemVer y huella del contenido; versiona las referencias de módulos y estilos. El service worker prepara el shell completo antes de activarse y confirma versión/huella al actualizador. Las navegaciones usan ese shell coherente, incluso offline. Se bloquean recargas repetidas ante publicaciones parciales; el botón manual permite reintentar.
+
+Para publicar cambios, aumentar `src/version.js`, `package.json`, `package-lock.json` y la versión inicial de `index.html` en el mismo commit. `npm run build` genera las referencias y metadatos de producción. No editar `dist/` a mano.
+
+Al migrar desde una instalación anterior sin actualizador, puede ser necesario cerrar todas las ventanas y pestañas de Guarda y abrirla nuevamente una vez; no borrar los datos del sitio. Las versiones siguientes se actualizan automáticamente.

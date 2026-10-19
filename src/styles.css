@@ -16,3 +16,6 @@ html,body{touch-action:pan-x pan-y;-webkit-text-size-adjust:100%;text-size-adjus
  .header .search input,.popover input,.utility-dialog input,.utility-dialog select{font-size:16px}
  .selection-bar{height:calc(72px + env(safe-area-inset-top));padding-top:env(safe-area-inset-top)}
 }
+
+.update-bar{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:8px;padding:16px 20px 110px;margin-left:280px;font-size:12px;color:var(--muted)}.update-bar button{font:inherit;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:6px 12px;cursor:pointer}.update-bar #update-status{flex-basis:100%;text-align:center}.sidebar-collapsed .update-bar{margin-left:80px}@media(max-width:800px){.update-bar,.sidebar-collapsed .update-bar{margin-left:0}}
+.brand #version{display:block;font-size:10px;line-height:12px;letter-spacing:0}
