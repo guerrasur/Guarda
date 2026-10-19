@@ -26,3 +26,15 @@ test('buttons stay interactive and edge dragging scrolls the board',()=>{
  const f=setup();f.event(f.a.querySelector('button'),'touchstart');f.hold();assert.equal(f.document.querySelector('.drag-ghost'),null);
  f.event(f.a,'touchstart');f.hold();f.event(f.document,'touchmove',{x:230,y:780});f.frame();assert.ok(f.scroll.some(v=>v>0));f.event(f.document,'touchcancel');
 });
+test('second finger before the long-press threshold cancels the pending drag',()=>{
+ const f=setup();f.event(f.a,'touchstart');f.event(f.document,'touchstart',{touches:2});f.hold();assert.equal(f.document.querySelector('.drag-ghost'),null);assert.equal(f.a.getAttribute('draggable'),'true');
+});
+test('touch release uses the final hit position instead of a stale drop target',async()=>{
+ const f=setup();f.event(f.a,'touchstart');f.hold();f.event(f.document,'touchmove',{x:230,y:310});f.hit(f.p);f.event(f.document,'touchend',{x:230,y:500});await Promise.resolve();assert.deepEqual(f.moves,[]);
+});
+test('a redraw removing the original card cancels the floating drag and unlocks updates',()=>{
+ const f=setup();f.event(f.a,'touchstart');f.hold();f.a.remove();f.frame();assert.equal(f.document.querySelector('.drag-ghost'),null);assert.equal(f.busy.at(-1),false);
+});
+test('backgrounding during native mouse drag cleans up source styling and update lock',()=>{
+ const f=setup();f.event(f.a,'dragstart');assert.equal(f.busy.at(-1),true);Object.defineProperty(f.document,'hidden',{value:true});f.event(f.document,'visibilitychange');assert.equal(f.a.classList.contains('drag-source'),false);assert.equal(f.busy.at(-1),false);
+});

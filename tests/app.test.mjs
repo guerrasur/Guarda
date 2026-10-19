@@ -79,3 +79,15 @@ await test('board drag saves before/after order without changing content timesta
  await until(async()=>{const notes=await store.allNotes();return notes.find(n=>n.id===a.id).order<notes.find(n=>n.id===b.id).order;});
  const after=await store.allNotes();assert.equal(after.find(n=>n.id===a.id).updatedAt,a.updatedAt);assert.equal(after.find(n=>n.id===b.id).body,b.body);assert.equal(await store.getSetting('updatedFirst',false),false);
 });
+await test('two concurrent close requests save once and close cleanly without a false storage error',async()=>{
+ await $('new-note').onclick();input($('note-title'),'Cerrar dos veces');
+ const original=GuardaStore.prototype.putNote;let release,entered=false;const gate=new Promise(resolve=>release=resolve);let writes=0;
+ GuardaStore.prototype.putNote=async function(note){if(note.title==='Cerrar dos veces'){entered=true;writes++;await gate;}return original.call(this,note);};
+ try{const first=$('editor-close').onclick();await until(()=>entered);const second=$('editor-back').onclick();release();assert.equal(await first,true);assert.equal(await second,true);assert.equal(writes,1);assert.equal($('editor-layer').hidden,true);assert.equal((await store.allNotes()).filter(n=>n.title==='Cerrar dos veces').length,1);}finally{release();GuardaStore.prototype.putNote=original;}
+});
+await test('an undo failure leaves its error message visible instead of hiding the replacement toast',async()=>{
+ const card=document.querySelector('[data-note]');const id=card.dataset.note;
+ card.querySelector('[data-action=archive]').dispatchEvent(new window.Event('click',{bubbles:true}));await until(()=>$('toast').textContent.includes('Nota archivada'));
+ const original=GuardaStore.prototype.putNote,log=console.error;GuardaStore.prototype.putNote=async()=>{throw new Error('Fallo de guardado de prueba');};console.error=()=>{};
+ try{await $('toast').querySelector('button').onclick();assert.equal($('toast').hidden,false);assert.match($('toast').textContent,/Fallo de guardado de prueba/);assert.equal((await store.allNotes()).find(n=>n.id===id).archived,true);}finally{GuardaStore.prototype.putNote=original;console.error=log;}
+});

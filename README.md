@@ -42,7 +42,7 @@ El código de aplicación no depende de bibliotecas externas ni carga fuentes o 
 
 ## Verificación
 
-36 pruebas automatizadas: persistencia tras reapertura, orden por edición y ajuste persistido, listas/archivo/restauración, sanitización, audio adjunto, MIME compatible, pausa/reanudación, fallos de permisos y almacenamiento, recuperación, backup con bytes originales y shell offline.
+42 pruebas automatizadas: persistencia tras reapertura, orden por edición y ajuste persistido, listas/archivo/restauración, sanitización, audio adjunto, MIME compatible, pausa/reanudación, fallos de permisos y almacenamiento, recuperación, backup con bytes originales y shell offline.
 
 Se verificó la carga de la publicación de Pages en un navegador real. Las pruebas automatizadas usan un DOM simulado y IndexedDB simulado; la grabación/instalación en un iPhone físico queda pendiente de comprobar.
 
@@ -57,3 +57,5 @@ El build genera `version.json` con SemVer y huella del contenido; versiona las r
 Para publicar cambios, aumentar `src/version.js`, `package.json`, `package-lock.json` y la versión inicial de `index.html` en el mismo commit. `npm run build` genera las referencias y metadatos de producción. No editar `dist/` a mano.
 
 Al migrar desde una instalación anterior sin actualizador, puede ser necesario cerrar todas las ventanas y pestañas de Guarda y abrirla nuevamente una vez; no borrar los datos del sitio. Las versiones siguientes se actualizan automáticamente.
+
+En v0.3.2 se corrigieron cierres simultáneos del editor, mensajes de error al deshacer y cancelación del arrastre al usar dos dedos, pasar al fondo o redibujarse el tablero. Al soltar se verifica la posición final del dedo/mouse.

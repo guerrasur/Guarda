@@ -16,7 +16,7 @@ const palette = [
 const store = new GuardaStore();
 let notes=[], labels=[], settings={}, editing=null, isNew=false, selected=new Set(), route='notes', search='', typeFilter='', popoverTarget=null, saveTimer, toastTimer, saveChain=Promise.resolve(), recorder=null, recordingNoteId=null, recordingId=null, recordingStarted=0, recordingTimer=null, recordingPausedAt=0, recordingPauseTotal=0, installPrompt=null, lastFocus=null, dragItem=null;
 const attachmentCache=new Map(), urls=new Map();
-let boardRender=0, editorRender=0, operationBusy=false, noteDragging=false, stopTask=null;
+let boardRender=0, editorRender=0, operationBusy=false, noteDragging=false, closeTask=null, stopTask=null;
 const now = () => Date.now();
 const nextOrder = () => Math.max(now(),...notes.map(n=>(Number(n.order)||n.createdAt||0)+1));
 const newNote = () => ({id:uid(),title:'',body:'',richBody:'',items:[],labels:[],attachments:[],isList:false,pinned:false,archived:false,deletedAt:null,color:'default',background:'none',createdAt:now(),updatedAt:now(),reminderAt:null,order:nextOrder()});
@@ -32,7 +32,7 @@ function applyNoteStyle(element,note){element.style.setProperty('--card-bg',colo
 function actionButton(action,name,label,extra=''){return `<button class="icon-button" data-action="${action}" aria-label="${esc(label)}" title="${esc(label)}" ${extra}>${icon(name)}</button>`;}
 function setIcon(id,name){$(id).innerHTML=icon(name);}
 function hasContent(n){return n.title.trim()||n.body.trim()||n.items.some(i=>i.text.trim())||n.attachments.length;}
-function toast(message,action,callback){clearTimeout(toastTimer);$('toast').hidden=false;$('toast').querySelector('span').textContent=message;const b=$('toast').querySelector('button');b.hidden=!action;b.textContent=action||'';b.onclick=async()=>{try{await callback?.();}catch(e){showError(e);} $('toast').hidden=true;};toastTimer=setTimeout(()=>$('toast').hidden=true,action?9000:5500);}
+function toast(message,action,callback){clearTimeout(toastTimer);$('toast').hidden=false;$('toast').querySelector('span').textContent=message;const b=$('toast').querySelector('button');b.hidden=!action;b.textContent=action||'';b.onclick=async()=>{clearTimeout(toastTimer);$('toast').hidden=true;try{await callback?.();}catch(e){showError(e);}};toastTimer=setTimeout(()=>$('toast').hidden=true,action?9000:5500);}
 function showError(error){console.error(error);toast(error?.message||'No se pudo completar la operación.');}
 function status(message,error=false){$('save-status').textContent=message;$('save-status').classList.toggle('save-error',error);$('editor-mobile-status').textContent=message;}
 function contentSignature(note){return JSON.stringify([note.title,note.body,note.richBody||'',note.isList,note.items,note.attachments]);}
@@ -95,7 +95,7 @@ function cardHTML(n){
  return `<article class="note-card ${selected.has(n.id)?'selected':''} ${['paper','dots','music'].includes(n.background)?`pattern-${n.background}`:''}" style="--card-bg:${colorOf(n)}" data-note="${esc(n.id)}" tabindex="0" aria-label="${esc(n.title||n.body.slice(0,70)||'Nota sin título')}" draggable="true"><button class="card-select" data-action="select" role="checkbox" aria-checked="${selected.has(n.id)}" aria-label="Seleccionar nota">${icon('check')}</button>${!n.deletedAt?`<button class="icon-button card-pin" data-action="pin" aria-label="${n.pinned?'Desfijar':'Fijar'} nota" aria-pressed="${n.pinned}">${icon('pin')}</button>`:''}${images.length?`<div class="card-images">${images.map(a=>`<img src="${objectURL(a)}" alt="${esc(a.name||'Imagen adjunta')}" loading="lazy">`).join('')}</div>`:''}${n.title?`<h3 class="note-title">${esc(n.title)}</h3>`:''}${content}${audio.map(a=>audioHTML(a)).join('')}${n.reminderAt||n.labels.length?`<div class="note-labels">${n.reminderAt?`<button class="label-chip reminder-chip" data-action="reminder">${icon('clock')}${esc(new Date(n.reminderAt).toLocaleString('es-AR',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}))}</button>`:''}${n.labels.map(id=>labels.find(l=>l.id===id)).filter(Boolean).map(l=>`<button class="label-chip" data-label="${esc(l.id)}">${esc(l.name)}</button>`).join('')}</div>`:''}<div class="card-toolbar">${toolbar}</div></article>`;
 }
 async function openEditor(noteOrId=null,{list=false,audio=false,image=false,draw=false}={}){
- if(editing&&!(await closeEditor()))return;hidePopover();lastFocus=document.activeElement;
+ if(closeTask){if(!(await closeTask))return;}else if(editing&&!(await closeEditor()))return;hidePopover();lastFocus=document.activeElement;
  const n=typeof noteOrId==='string'?notes.find(n=>n.id===noteOrId):noteOrId;editing=clone(n||newNote());isNew=!n;
  if(isNew){editing.isList=list;if(route.startsWith('label:'))editing.labels=[route.slice(6)];}
  $('editor-layer').hidden=false;document.body.classList.add('editor-open');$('note-title').value=editing.title;$('editor-body').innerHTML=editing.richBody?sanitizeRich(editing.richBody):esc(editing.body).replace(/\n/g,'<br>');$('format-toolbar').hidden=true;
@@ -110,7 +110,12 @@ function renderChecklist(){if(!editing?.isList)return;const rows=checked=>editin
 }
 function addCheck(after){if(!editing)return;const item={id:uid(),text:'',checked:false};const idx=editing.items.findIndex(i=>i.id===after);editing.items.splice(idx<0?editing.items.length:idx+1,0,item);renderChecklist();$('editor-checklist').querySelector(`[data-check-id="${item.id}"] input[type=text]`)?.focus();scheduleSave();}
 async function renderEditorAttachments(){if(!editing)return;const token=++editorRender;const id=editing.id;const at=(await Promise.all(editing.attachments.map(getAttachment))).filter(a=>a&&!a.draft);if(token!==editorRender||editing?.id!==id)return;$('editor-images').innerHTML=at.filter(a=>a.type.startsWith('image/')).map(a=>`<div class="editor-image" data-attachment="${esc(a.id)}"><img src="${objectURL(a)}" alt="${esc(a.name)}">${actionButton('delete-attachment','trash','Eliminar imagen')}</div>`).join('');$('editor-audios').innerHTML=at.filter(a=>a.type.startsWith('audio/')).map(a=>audioHTML(a,true)).join('');}
-async function closeEditor(){if(!editing)return true;if(stopTask){const saved=await stopTask;if(saved===false)return false;}if(recorder&&['recording','paused','stopping'].includes(recorder.state)){const saved=await stopRecording();if(saved===false||recorder?.state!=='idle')return false;}else if(recorder?.state==='requesting'){recorder.cancel();clearInterval(recordingTimer);$('record-panel').hidden=true;}
+function closeEditor(){
+ if(closeTask)return closeTask;
+ closeTask=finishCloseEditor().finally(()=>{closeTask=null;});
+ return closeTask;
+}
+async function finishCloseEditor(){if(!editing)return true;if(stopTask){const saved=await stopTask;if(saved===false)return false;}if(recorder&&['recording','paused','stopping'].includes(recorder.state)){const saved=await stopRecording();if(saved===false||recorder?.state!=='idle')return false;}else if(recorder?.state==='requesting'){recorder.cancel();clearInterval(recordingTimer);$('record-panel').hidden=true;}
  try{await saveDraft();if(!hasContent(editing))await store.deleteNote(editing.id);}catch(e){showError(e);return false;}
  editing=null;editorRender++;hidePopover();$('editor-layer').hidden=true;document.body.classList.remove('editor-open');await refresh();if(lastFocus?.isConnected)lastFocus.focus();return true;}
 async function mutateNote(id,changes,{undoLabel}={}){const n=editing?.id===id?editing:clone(notes.find(n=>n.id===id));if(!n)return;const old=clone(n);Object.assign(n,changes,{updatedAt:now()});if(settings.updatedFirst!==false&&contentSignature(n)!==contentSignature(old))n.order=nextOrder();if(editing?.id===id){await saveDraft();renderEditor();}else await store.putNote(n);await refresh();if(undoLabel)toast(undoLabel,'Deshacer',async()=>{await store.putNote(old);if(editing?.id===id){editing=clone(old);renderEditor();}await refresh();});}
