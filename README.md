@@ -11,6 +11,7 @@ Abrir la publicación de GitHub Pages del repositorio. En iPhone: Safari → Com
 - Búsqueda, filtros, etiquetas, colores, fondos, fijadas, archivo y papelera con restauración.
 - Orden manual por arrastre; cada cambio de texto sube la nota al principio de su sección por defecto. Se desactiva desde Configuración → Subir notas actualizadas al principio.
 - Apariencia clara, oscura o del dispositivo; vista de lista o cuadrícula.
+- Menú móvil debajo del encabezado completo y bloqueo de zoom por gestos, conservando el desplazamiento.
 - Guardado automático en IndexedDB, audios como blobs y modo sin conexión mediante service worker.
 - Copias de seguridad JSON completas con textos y archivos; restauración transaccional.
 - Recordatorios dentro de la app mientras está abierta.
@@ -41,7 +42,7 @@ El código de aplicación no depende de bibliotecas externas ni carga fuentes o 
 
 ## Verificación
 
-22 pruebas automatizadas: persistencia tras reapertura, orden por edición y ajuste persistido, listas/archivo/restauración, sanitización, audio adjunto, MIME compatible, pausa/reanudación, fallos de permisos y almacenamiento, recuperación, backup con bytes originales y shell offline.
+23 pruebas automatizadas: persistencia tras reapertura, orden por edición y ajuste persistido, listas/archivo/restauración, sanitización, audio adjunto, MIME compatible, pausa/reanudación, fallos de permisos y almacenamiento, recuperación, backup con bytes originales y shell offline.
 
 Se verificó la carga de la publicación de Pages en un navegador real. Las pruebas automatizadas usan un DOM simulado y IndexedDB simulado; la grabación/instalación en un iPhone físico queda pendiente de comprobar.
 
