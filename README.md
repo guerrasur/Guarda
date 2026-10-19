@@ -9,7 +9,7 @@ Abrir la publicación de GitHub Pages del repositorio. En iPhone: Safari → Com
 - Texto con formato, listas con casillas, imágenes y dibujos.
 - Grabación real de audio dentro de la nota, con pausa, reproducción y descarga. No usa dictado ni transcripción.
 - Búsqueda, filtros, etiquetas, colores, fondos, fijadas, archivo y papelera con restauración.
-- Orden manual por arrastre; cada cambio de texto sube la nota al principio de su sección por defecto. Se desactiva desde Configuración → Subir notas actualizadas al principio.
+- Orden manual por arrastre: en celular, mantener pulsada la nota 450 ms y moverla; en computadora, arrastrarla con el mouse. El borde indica dónde quedará; al acercarse al borde de la pantalla, se desplaza la página. El gesto respeta las secciones Fijadas/Otras y guarda el orden localmente; cada cambio de texto sube la nota al principio de su sección por defecto. Se desactiva desde Configuración → Subir notas actualizadas al principio.
 - Apariencia clara, oscura o del dispositivo; vista de lista o cuadrícula.
 - Menú móvil debajo del encabezado completo y bloqueo de zoom por gestos, conservando el desplazamiento.
 - Guardado automático en IndexedDB, audios como blobs y modo sin conexión mediante service worker.
@@ -42,7 +42,7 @@ El código de aplicación no depende de bibliotecas externas ni carga fuentes o 
 
 ## Verificación
 
-30 pruebas automatizadas: persistencia tras reapertura, orden por edición y ajuste persistido, listas/archivo/restauración, sanitización, audio adjunto, MIME compatible, pausa/reanudación, fallos de permisos y almacenamiento, recuperación, backup con bytes originales y shell offline.
+36 pruebas automatizadas: persistencia tras reapertura, orden por edición y ajuste persistido, listas/archivo/restauración, sanitización, audio adjunto, MIME compatible, pausa/reanudación, fallos de permisos y almacenamiento, recuperación, backup con bytes originales y shell offline.
 
 Se verificó la carga de la publicación de Pages en un navegador real. Las pruebas automatizadas usan un DOM simulado y IndexedDB simulado; la grabación/instalación en un iPhone físico queda pendiente de comprobar.
 

@@ -85,6 +85,16 @@ export class GuardaStore extends EventTarget {
   }
   // A transaction covering every store waits for prior writes to commit.
   whenIdle() { return this._run(STORES, 'readonly', () => {}); }
+  async reorderNotes(positions) {
+    assert(Array.isArray(positions) && positions.every(p=>validId(p.id)&&Number.isFinite(p.order)), 'El orden no es válido.');
+    assert(new Set(positions.map(p=>p.id)).size===positions.length, 'Hay notas repetidas en el orden.');
+    return this._run(['notes'], 'readwrite', async tx=>{
+      const notes=tx.objectStore('notes');
+      const current=await Promise.all(positions.map(p=>requestResult(notes.get(p.id))));
+      assert(current.every(Boolean), 'Una nota ya no existe.');
+      for(let i=0;i<positions.length;i++)notes.put({...current[i],order:positions[i].order});
+    }, {type:'reorder-notes'});
+  }
   allNotes() { return this._run(['notes'], 'readonly', tx => requestResult(tx.objectStore('notes').getAll())); }
   async putNote(note) {
     validateNote(note);

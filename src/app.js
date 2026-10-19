@@ -1,3 +1,4 @@
+import { bindNoteDrag } from './note-drag.js';
 import { initUpdater } from './updater.js';
 import { APP_VERSION } from './version.js';
 import { GuardaStore } from './storage.js';
@@ -15,7 +16,7 @@ const palette = [
 const store = new GuardaStore();
 let notes=[], labels=[], settings={}, editing=null, isNew=false, selected=new Set(), route='notes', search='', typeFilter='', popoverTarget=null, saveTimer, toastTimer, saveChain=Promise.resolve(), recorder=null, recordingNoteId=null, recordingId=null, recordingStarted=0, recordingTimer=null, recordingPausedAt=0, recordingPauseTotal=0, installPrompt=null, lastFocus=null, dragItem=null;
 const attachmentCache=new Map(), urls=new Map();
-let boardRender=0, editorRender=0, operationBusy=false, stopTask=null;
+let boardRender=0, editorRender=0, operationBusy=false, noteDragging=false, stopTask=null;
 const now = () => Date.now();
 const nextOrder = () => Math.max(now(),...notes.map(n=>(Number(n.order)||n.createdAt||0)+1));
 const newNote = () => ({id:uid(),title:'',body:'',richBody:'',items:[],labels:[],attachments:[],isList:false,pinned:false,archived:false,deletedAt:null,color:'default',background:'none',createdAt:now(),updatedAt:now(),reminderAt:null,order:nextOrder()});
@@ -60,6 +61,16 @@ function filteredNotes(){const q=search.toLocaleLowerCase().normalize('NFD').rep
  if(typeFilter==='list'&&!n.isList)return false;if(typeFilter==='audio'&&!n.attachments.some(id=>attachmentCache.get(id)?.type.startsWith('audio/')))return false;if(typeFilter==='image'&&!n.attachments.some(id=>attachmentCache.get(id)?.type.startsWith('image/')))return false;
  return true;
  }).sort((a,b)=>(b.order??b.createdAt)-(a.order??a.createdAt));}
+async function moveNote(sourceId,targetId,after=false){
+ const visible=filteredNotes(),source=visible.find(n=>n.id===sourceId),target=visible.find(n=>n.id===targetId);
+ if(!source||!target||source===target)return;
+ if(!['trash','archive'].includes(route)&&source.pinned!==target.pinned)return;
+ const ordered=visible.filter(n=>n.id!==sourceId),index=ordered.findIndex(n=>n.id===targetId);
+ ordered.splice(index+(after?1:0),0,source);
+ const base=Math.max(now(),...notes.map(n=>Number(n.order)||n.createdAt||0))+ordered.length;
+ await store.reorderNotes(ordered.map((n,i)=>({id:n.id,order:base-i})));
+ await refresh();toast('Orden de notas guardado');
+}
 async function renderBoard(){
  const token=++boardRender;const area=$('notes-area');
  for(const n of notes)for(const id of n.attachments)await getAttachment(id);
@@ -177,7 +188,7 @@ function bindEvents(){
  $('editor-images').onclick=attachmentClick;$('editor-audios').onclick=attachmentClick;
  $('notes-area').onclick=async e=>{const card=e.target.closest('[data-note]');if(!card)return;const id=card.dataset.note,n=notes.find(n=>n.id===id);const action=e.target.closest('[data-action]')?.dataset.action;try{if(e.target.closest('[data-attachment]')&&action==='download-audio'){await attachmentClick(e);return;}if(e.target.matches('input[data-item]')){const changed=clone(n);const item=changed.items.find(i=>i.id===e.target.dataset.item);item.checked=e.target.checked;await store.putNote(localSnapshot(changed));await refresh();return;}if(e.target.closest('[data-label]')){navigate(`label:${e.target.closest('[data-label]').dataset.label}`);return;}if(action){e.stopPropagation();if(action==='select'){selected.has(id)?selected.delete(id):selected.add(id);renderBoard();}if(action==='pin')await mutateNote(id,{pinned:!n.pinned});if(action==='archive')await archiveNote(id);if(action==='restore')await mutateNote(id,{deletedAt:null});if(action==='delete')deletePermanently(id);if(action==='more')morePopover(e.target.closest('button'),id);if(action==='color')colorPopover(e.target.closest('button'),id);if(action==='label')labelPopover(e.target.closest('button'),id);if(action==='reminder')reminderDialog(id);return;}if(e.target.closest('audio,button,input,label'))return;if(selected.size){selected.has(id)?selected.delete(id):selected.add(id);renderBoard();}else if(!n.deletedAt)await openEditor(id);else toast('Restaurá esta nota para editarla.');}catch(err){showError(err);}};
  $('notes-area').onkeydown=e=>{if(e.target.matches('[data-note]')&&['Enter',' '].includes(e.key)){e.preventDefault();e.target.click();}};
- let draggedNote;$('notes-area').ondragstart=e=>{if(e.target.closest('input,button,audio')){e.preventDefault();return;}draggedNote=e.target.closest('[data-note]')?.dataset.note;};$('notes-area').ondragover=e=>e.preventDefault();$('notes-area').ondrop=async e=>{e.preventDefault();const target=e.target.closest('[data-note]')?.dataset.note;if(!draggedNote||!target||draggedNote===target)return;const n=notes.find(n=>n.id===draggedNote),dest=notes.find(n=>n.id===target);if(!n||!dest)return;const ordered=filteredNotes().filter(x=>x.id!==n.id);const idx=ordered.findIndex(x=>x.id===dest.id);ordered.splice(idx,0,n);const base=now();for(let i=0;i<ordered.length;i++){ordered[i].order=base-i;await store.putNote(ordered[i]);}await refresh();};
+ bindNoteDrag($('notes-area'),{onMove:moveNote,onError:showError,onBusyChange:busy=>noteDragging=busy});
  $('selection-bar').onclick=e=>{const action=e.target.closest('[data-action]')?.dataset.action;if(action)bulk(action).catch(showError);};
  document.addEventListener('click',e=>{if(!$('popover').hidden&&!$('popover').contains(e.target)&&!popoverTarget?.contains(e.target))hidePopover();});
  document.addEventListener('keydown',e=>{const typing=e.target.closest('input,textarea,[contenteditable=true]');if(e.key==='Escape'){if(!$('popover').hidden){hidePopover();return;}if($('utility-dialog').open||$('draw-dialog').open)return;if(editing){closeEditor().catch(showError);return;}if(selected.size){selected.clear();renderBoard();return;}if(search){$('clear-search').click();return;}}if(editing&&(e.ctrlKey||e.metaKey)&&e.key==='Enter'){e.preventDefault();closeEditor().catch(showError);}if(!typing&&!editing&&!$('utility-dialog').open&&!$('draw-dialog').open){if(e.key==='c')openEditor().catch(showError);if(e.key==='l')$('new-list').click();if(e.key==='/'){e.preventDefault();$('search').focus();}}});
@@ -193,6 +204,6 @@ async function loadSettings(){const keys=['theme','view','sidebarCollapsed','sho
 function applySettings(){document.body.classList.toggle('notes-list',settings.view==='list');document.body.classList.toggle('sidebar-collapsed',!!settings.sidebarCollapsed);setIcon('view-toggle',settings.view==='list'?'grid':'list');$('view-toggle').setAttribute('aria-label',settings.view==='list'?'Vista de cuadrícula':'Vista de lista');applyTheme();}
 async function checkReminders(){const due=notes.filter(n=>!n.deletedAt&&n.reminderAt&&n.reminderAt<=now()&&!n.reminderNotified);for(const n of due){toast(`Recordatorio: ${n.title||n.body.slice(0,60)||'Nota de Guarda'}`,'Ver',()=>openEditor(n.id));n.reminderNotified=true;await store.putNote(n);}}
 async function init(){
- bindEvents();try{await store.init();settings=await loadSettings();[notes,labels]=await Promise.all([store.allNotes(),store.allLabels()]);const hash=decodeURIComponent(location.hash.slice(1));if(/^(notes|archive|trash|reminders)$/.test(hash)||hash.startsWith('label:'))route=hash;await recoverDraftRecordings();applySettings();await refresh();await navigator.storage?.persist?.().catch(()=>false);matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{if(settings.theme==='system')applyTheme();});checkReminders().catch(showError);setInterval(()=>checkReminders().catch(showError),30000);initUpdater(APP_VERSION,{isBusy:()=>!!editing||operationBusy||!!stopTask||document.querySelector('dialog[open]')||[...document.querySelectorAll('audio')].some(a=>a.paused===false)||recorder&&recorder.state!=='idle',saveState:async()=>{await saveDraft();await saveChain;await store.whenIdle();}});}catch(error){status('Almacenamiento no disponible',true);$('empty-state').hidden=false;$('empty-icon').innerHTML=icon('info');$('empty-message').textContent='No se pudo abrir el almacenamiento de Guarda.';$('empty-create').hidden=true;showError(error);}
+ bindEvents();try{await store.init();settings=await loadSettings();[notes,labels]=await Promise.all([store.allNotes(),store.allLabels()]);const hash=decodeURIComponent(location.hash.slice(1));if(/^(notes|archive|trash|reminders)$/.test(hash)||hash.startsWith('label:'))route=hash;await recoverDraftRecordings();applySettings();await refresh();await navigator.storage?.persist?.().catch(()=>false);matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{if(settings.theme==='system')applyTheme();});checkReminders().catch(showError);setInterval(()=>checkReminders().catch(showError),30000);initUpdater(APP_VERSION,{isBusy:()=>!!editing||operationBusy||noteDragging||!!stopTask||document.querySelector('dialog[open]')||[...document.querySelectorAll('audio')].some(a=>a.paused===false)||recorder&&recorder.state!=='idle',saveState:async()=>{await saveDraft();await saveChain;await store.whenIdle();}});}catch(error){status('Almacenamiento no disponible',true);$('empty-state').hidden=false;$('empty-icon').innerHTML=icon('info');$('empty-message').textContent='No se pudo abrir el almacenamiento de Guarda.';$('empty-create').hidden=true;showError(error);}
 }
 init();

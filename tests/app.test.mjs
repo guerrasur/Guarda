@@ -70,3 +70,12 @@ await test('restoring a backup with interrupted recording fragments recovers vis
  $('backup-file').onchange({target:{files:[{text:async()=>JSON.stringify(backup)}],value:''}});await until(()=>$('utility-dialog').open&&$('utility-content').textContent.includes('Restaurar esta copia'));
  const restore=[...$('utility-content').querySelectorAll('[data-dialog-action]')].find(e=>e.textContent==='Restaurar');await $('utility-content').onclick({target:restore});await until(()=>document.querySelector(`[data-note="${n.id}"] audio`));const restored=(await store.allNotes()).find(x=>x.id===n.id);assert.equal(restored.attachments.length,1);assert.notEqual(restored.attachments[0],'fragment-1');const a=await store.getAttachment(restored.attachments[0]);assert.equal(await a.blob.text(),'recover me');assert.equal(a.draft,undefined);
 });
+await test('board drag saves before/after order without changing content timestamps or update-first preference',async()=>{
+ await create('Destino');await create('Arrastrada');const before=await store.allNotes(),a=before.find(n=>n.title==='Arrastrada'),b=before.find(n=>n.title==='Destino');
+ const source=document.querySelector(`[data-note="${a.id}"]`),destination=document.querySelector(`[data-note="${b.id}"]`);
+ document.elementFromPoint=()=>destination;
+ function drag(target,type,y=290){const event=new window.Event(type,{bubbles:true,cancelable:true});Object.assign(event,{clientX:150,clientY:y,dataTransfer:{setData(){}}});target.dispatchEvent(event);}
+ drag(source,'dragstart');drag(destination,'dragover');drag(destination,'drop');
+ await until(async()=>{const notes=await store.allNotes();return notes.find(n=>n.id===a.id).order<notes.find(n=>n.id===b.id).order;});
+ const after=await store.allNotes();assert.equal(after.find(n=>n.id===a.id).updatedAt,a.updatedAt);assert.equal(after.find(n=>n.id===b.id).body,b.body);assert.equal(await store.getSetting('updatedFirst',false),false);
+});

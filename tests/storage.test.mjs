@@ -94,3 +94,9 @@ test('atomic attachment cannot remove another note’s audio', async t => {
   await assert.rejects(store.attachToNote(note(), { ...audio, id: 'mine', noteId: 'note-1' }, { deleteIds: ['other-audio'] }), /pertenece a otra nota/);
   assert.equal((await store.allNotes()).length, 1); assert.ok(await store.getAttachment('other-audio'));
 });
+test('manual reordering commits all positions together and retains text, timestamps, pinning and audio',async t=>{
+ const store=await open(t);await store.putNote(note('a',{attachments:['voice'],pinned:true,order:20}));await store.putNote(note('b',{order:10}));await store.putAttachment({id:'voice',noteId:'a',blob:new Blob(['original audio']),type:'audio/mp4',name:'Audio'});
+ await store.reorderNotes([{id:'a',order:1},{id:'b',order:2}]);const all=await store.allNotes();assert.deepEqual(all.find(n=>n.id==='a'),note('a',{attachments:['voice'],pinned:true,order:1}));assert.equal(await (await store.getAttachment('voice')).blob.text(),'original audio');
+ await assert.rejects(store.reorderNotes([{id:'a',order:99},{id:'missing',order:98}]));assert.equal((await store.allNotes()).find(n=>n.id==='a').order,1,'failed reorder must roll back every position');
+ const reopened=new GuardaStore({name:store.name,broadcast:false});t.after(()=>reopened.close());assert.equal((await reopened.allNotes()).find(n=>n.id==='b').order,2);
+});
