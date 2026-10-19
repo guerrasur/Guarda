@@ -1,6 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {parseHTML} from 'linkedom';import {bindNoteDrag} from '../src/note-drag.js';
 function setup(){
- const {document,window}=parseHTML('<html><body><header class="header"></header><div id="area"><div class="notes-grid"><article data-note="a"><h3>A</h3><button>Fijar</button></article><article data-note="b">B</article></div><div class="notes-grid"><article data-note="p">Fijada</article></div></div></body></html>');
+ const {document,window}=parseHTML('<html><body><header class="header"></header><div id="area"><div class="notes-grid"><article data-note="a" draggable="true"><h3>A</h3><button>Fijar</button></article><article data-note="b">B</article></div><div class="notes-grid"><article data-note="p">Fijada</article></div></div></body></html>');
  const area=document.getElementById('area'),a=area.querySelector('[data-note=a]'),b=area.querySelector('[data-note=b]'),p=area.querySelector('[data-note=p]');
  a.getBoundingClientRect=()=>({left:20,top:200,width:160,height:120});b.getBoundingClientRect=()=>({left:200,top:200,width:160,height:120});document.querySelector('header').getBoundingClientRect=()=>({bottom:100});let hit=b;
  document.elementFromPoint=()=>hit;const timers=new Map(),frames=new Map(),moves=[],busy=[],scroll=[];let sequence=0;
@@ -10,7 +10,7 @@ function setup(){
  return {document,area,a,b,p,moves,busy,scroll,event,hit:card=>hit=card,hold:()=>{for(const [id,fn] of [...timers]){timers.delete(id);fn();}},frame:()=>{for(const [id,fn] of [...frames]){frames.delete(id);fn();}}};
 }
 test('short tap opens normally; moving before the hold preserves scrolling and never reorders',()=>{
- const f=setup();f.event(f.a,'touchstart');assert.equal(f.event(f.document,'touchend').defaultPrevented,false);f.hold();assert.equal(f.moves.length,0);
+ const f=setup();f.event(f.a,'touchstart');assert.equal(f.a.getAttribute('draggable'),'false');assert.equal(f.event(f.document,'touchend').defaultPrevented,false);f.hold();assert.equal(f.a.getAttribute('draggable'),'true');assert.equal(f.moves.length,0);
  f.event(f.a,'touchstart');assert.equal(f.event(f.document,'touchmove',{y:280}).defaultPrevented,false);f.hold();assert.equal(f.document.querySelector('.drag-ghost'),null);f.event(f.document,'touchend');assert.equal(f.moves.length,0);
 });
 test('long press lifts the card, blocks scrolling, drops after target and suppresses opening',async()=>{

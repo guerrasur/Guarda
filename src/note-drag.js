@@ -25,7 +25,8 @@ export function bindNoteDrag(area,{onMove,onError=console.error,onBusyChange=()=
  }
  function cleanup(){
   cancelTimer();if(frame!==null)env.cancelAnimationFrame(frame);frame=null;ghost?.remove();ghost=null;
-  gesture?.card.classList.remove('drag-source');clearTarget();gesture=null;
+  if(gesture){gesture.card.classList.remove('drag-source');if(gesture.draggable===null)gesture.card.removeAttribute('draggable');else gesture.card.setAttribute('draggable',gesture.draggable);}
+  clearTarget();gesture=null;
   document.body.classList.remove('note-dragging');
  }
  async function commit(source,destination,insertAfter){
@@ -37,7 +38,9 @@ export function bindNoteDrag(area,{onMove,onError=console.error,onBusyChange=()=
   if(gesture||committing||event.touches.length!==1)return;
   const card=cardOf(event.target);if(!card||interactive(event.target))return;
   const p=event.touches[0],rect=card.getBoundingClientRect();
-  gesture={id:p.identifier,card,x:p.clientX,y:p.clientY,startX:p.clientX,startY:p.clientY,dx:p.clientX-rect.left,dy:p.clientY-rect.top,active:false};
+  gesture={id:p.identifier,card,x:p.clientX,y:p.clientY,startX:p.clientX,startY:p.clientY,dx:p.clientX-rect.left,dy:p.clientY-rect.top,draggable:card.getAttribute('draggable'),active:false};
+  // Suppress Safari native image/card dragging while this touch gesture owns it.
+  card.setAttribute('draggable','false');
   timer=env.setTimeout(()=>{
    if(!gesture||!card.isConnected){cleanup();return;}
    gesture.active=true;onBusyChange(true);document.body.classList.add('note-dragging');card.classList.add('drag-source');
