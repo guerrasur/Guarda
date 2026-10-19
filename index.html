@@ -10,7 +10,7 @@
 <body>
 <header class="header">
 <button class="icon-button" id="menu-toggle" aria-label="Menú principal" aria-expanded="true"></button>
-<a class="brand" href="#notes"><img src="./guardia-icon.png" width="40" height="40" alt=""><span>Guarda<small id="version">v0.3.2</small></span></a>
+<a class="brand" href="#notes"><img src="./guardia-icon.png" width="40" height="40" alt=""><span>Guarda<small id="version">v0.4.0</small></span></a>
 <form class="search" role="search"><span data-icon="search"></span><input id="search" type="search" placeholder="Buscar" aria-label="Buscar notas" autocomplete="off"><button type="button" class="icon-button" id="clear-search" aria-label="Borrar búsqueda" hidden></button></form>
 <div class="header-actions"><span id="save-status" class="save-status" role="status">Guardado local</span><button class="icon-button" id="view-toggle" aria-label="Vista de lista"></button><button class="icon-button" id="settings-toggle" aria-label="Configuración"></button><button class="avatar" id="local-info" aria-label="Almacenamiento en este dispositivo"><img src="./guardia-icon.png" alt=""></button></div>
 </header>
@@ -35,6 +35,7 @@
 <div id="popover" class="popover" hidden></div>
 <dialog id="utility-dialog" class="utility-dialog"><div id="utility-content"></div></dialog>
 <dialog id="draw-dialog" class="draw-dialog"><div class="draw-top"><strong>Dibujo</strong><input type="color" id="pen-color" value="#202124" aria-label="Color del trazo"><input type="range" id="pen-width" min="1" max="16" value="3" aria-label="Grosor del trazo"><button class="icon-button" id="draw-clear" aria-label="Borrar dibujo"></button><button class="text-button" id="draw-cancel">Cancelar</button><button class="text-button" id="draw-save">Guardar</button></div><canvas id="draw-canvas" width="1000" height="700"></canvas></dialog>
+<div class="drive-bar"><button id="drive-open" type="button">Google Drive</button><span id="drive-status" role="status">Drive sin conectar</span></div>
 <div class="update-bar"><button id="update" type="button">Actualizar</button><span id="update-status" role="status" aria-live="polite"></span></div>
 <div class="toast" id="toast" role="status" hidden><span></span><button></button></div>
 <input type="file" id="image-file" accept="image/*" multiple hidden><input type="file" id="backup-file" accept="application/json,.json" hidden>

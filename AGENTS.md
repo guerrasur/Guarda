@@ -1,6 +1,6 @@
 # Guarda
 
-App estática PWA local con IndexedDB; publicar en GitHub Pages bajo /Guarda/. No implementar nube sin pedido. Mantener identidad del guardia y grabación de audio real, sin dictado.
+App estática PWA local con IndexedDB; publicar en GitHub Pages bajo /Guarda/. Drive está autorizado como integración opcional; no habilitar facturación ni otras nubes sin pedido. Mantener identidad del guardia y grabación de audio real, sin dictado.
 
 ## Actualizaciones obligatorias
 Sistema adaptado de guerrasur/abridorsimuleitor/updater.js.
@@ -10,3 +10,10 @@ Sistema adaptado de guerrasur/abridorsimuleitor/updater.js.
 - scripts/build.mjs genera version.json con huella y versiona todas las referencias de scripts/estilos. El service worker debe preparar todos los archivos y confirmar versión/huella antes de SKIP_WAITING. No mezclar versiones ni crear bucles ante CDN/despliegues parciales.
 - Conservar IndexedDB, audios, notas, etiquetas y ajustes. No desregistrar workers ni borrar caches de otros proyectos.
 - Verificar npm run check, npm test y npm run build. Confirmar despliegue de Pages antes de afirmar publicación; distinguir pruebas simuladas de iPhone físico.
+
+## Drive
+- OAuth con drive.file, tokens solo en memoria. Client ID público en src/drive-config.js; nunca guardar secretos.
+- Estado local y cuenta vinculada no deben mezclarse con otras cuentas ni exportarse como configuración de otro dispositivo.
+- Preservar relojes vectoriales, copias de conflictos y marcadores de eliminación. Validar archivos antes de modificarlos.
+- Aplicar descargas solo si la revisión local no cambió durante la red; respetar editores/grabación y Web Locks.
+- Las pruebas con OAuth/Drive simulado no acreditan autorización real; falta Client ID y cuenta de prueba. Ver docs/google-drive.md.

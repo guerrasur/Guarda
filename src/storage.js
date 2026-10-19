@@ -70,10 +70,12 @@ export class GuardaStore extends EventTarget {
   }
   async _run(stores, mode, operation, detail) {
     await this.init();
-    const transaction = this.db.transaction(stores, mode);
+    const transaction = this.db.transaction(mode==='readwrite'?[...new Set([...stores,'settings'])]:stores, mode);
     const done = transactionDone(transaction);
     try {
+      const revision=mode==='readwrite'?(await requestResult(transaction.objectStore('settings').get('local-revision')))?.value||0:0;
       const result = await operation(transaction);
+      if(mode==='readwrite')transaction.objectStore('settings').put({id:'local-revision',value:revision+1});
       await done;
       if (detail) { this.dispatchEvent(new CustomEvent('change', { detail })); this.channel?.postMessage(detail); }
       return result;
@@ -160,15 +162,18 @@ export class GuardaStore extends EventTarget {
     return record ? record.value : fallback;
   }
   setSetting(key, value) { return this._run(['settings'], 'readwrite', tx => requestResult(tx.objectStore('settings').put({ id: key, value })), { type: 'setting', id: key }); }
-  async exportBackup() {
+  async exportBackup({accountId}={}) {
     const snapshot = await this._run(STORES, 'readonly', async tx => {
       const records = await Promise.all(STORES.map(name => requestResult(tx.objectStore(name).getAll())));
       return Object.fromEntries(STORES.map((name, index) => [name, records[index]]));
     });
+    const localRevision=snapshot.settings.find(r=>r.id==='local-revision')?.value||0;
+    const cloudState=accountId?snapshot.settings.find(r=>r.id==='drive-state:'+accountId)?.value:undefined;
+    snapshot.settings=snapshot.settings.filter(r=>!r.id.startsWith('drive-')&&r.id!=='local-revision');
     snapshot.attachments = await Promise.all(snapshot.attachments.map(async ({ blob, ...attachment }) => ({ ...attachment, data: await encodeBlob(blob) })));
-    return { format: 'guarda-backup', version: 1, exportedAt: Date.now(), ...snapshot };
+    return { format: 'guarda-backup', version: 1, exportedAt: Date.now(), localRevision, ...(accountId?{cloudState}:{}), ...snapshot };
   }
-  async importBackup(data) {
+  async validateBackup(data) {
     assert(object(data) && data.format === 'guarda-backup' && data.version === 1, 'La copia no tiene un formato de Guarda compatible.');
     for (const name of STORES) assert(Array.isArray(data[name]), `Falta la sección ${name} de la copia.`);
     const unique = (records, name) => { const ids = new Set(); for (const record of records) { assert(validId(record?.id) && !ids.has(record.id), `Hay identificadores inválidos o repetidos en ${name}.`); ids.add(record.id); } return ids; };
@@ -183,11 +188,16 @@ export class GuardaStore extends EventTarget {
     }
     const noteMap = new Map(data.notes.map(note => [note.id, note]));
     for (const attachment of attachments) assert(noteIds.has(attachment.noteId) && noteMap.get(attachment.noteId).attachments.includes(attachment.id), 'Un adjunto no pertenece a ninguna nota.');
-    // Decode and validate everything before opening the single replacement transaction.
-    return this._run(STORES, 'readwrite', tx => {
-      const records = { ...data, attachments };
-      for (const name of STORES) { const store = tx.objectStore(name); store.clear(); for (const record of records[name]) store.put(record); }
-    }, { type: 'import' });
+    return {...data,attachments};
+  }
+  async importBackup(data,{expectedRevision,accountId,syncState,contentChanged=true}={}) {
+    // Decode and validate before opening the single replacement transaction.
+    const records=await this.validateBackup(data);
+    return this._run(STORES, 'readwrite', async tx => {
+      if(expectedRevision!==undefined){const actual=(await requestResult(tx.objectStore('settings').get('local-revision')))?.value||0;if(actual!==expectedRevision)throw new Error('Las notas cambiaron durante la sincronización. Se reintentará sin reemplazar tus cambios.');}
+      for (const name of STORES) {if(expectedRevision!==undefined&&(name==='settings'||!contentChanged))continue;const store = tx.objectStore(name); store.clear(); for (const record of records[name]) {if(name==='settings'&&(record.id.startsWith('drive-')||record.id==='local-revision'))continue;store.put(record);} }
+      if(expectedRevision!==undefined){assert(typeof accountId==='string'&&accountId&&syncState,'Falta la cuenta de sincronización.');tx.objectStore('settings').put({id:'drive-state:'+accountId,value:syncState});}
+    }, { type: expectedRevision===undefined?'import':'cloud-apply', ...(expectedRevision===undefined?{}:{contentChanged}) });
   }
   close() { this.db?.close(); this.db = null; this.opening = null; this.channel?.close(); }
 }

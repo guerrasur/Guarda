@@ -18,7 +18,7 @@ Abrir la publicación de GitHub Pages del repositorio. En iPhone: Safari → Com
 
 ## Datos locales
 
-No hay cuenta, servidor de datos ni sincronización de nube. Cada navegador/dispositivo tiene sus propias notas. Borrar datos del navegador puede eliminarlas; exportar copias desde Configuración. La app solicita almacenamiento persistente cuando el navegador lo permite.
+El guardado local no requiere cuenta. La sincronización opcional usa el Drive de cada persona, sin servidor de datos propio. Requiere configurar el ID público de OAuth; mientras no esté configurado o conectado, cada navegador/dispositivo conserva sus propias notas. Borrar datos del navegador puede eliminarlas; exportar copias desde Configuración. La app solicita almacenamiento persistente cuando el navegador lo permite.
 
 La captura del micrófono necesita HTTPS o localhost y permiso del usuario. Se prioriza audio/mp4 en Safari y se elige un formato compatible en otros navegadores. Al pasar la app al fondo, se intenta detener y guardar la grabación; los fragmentos ya persistidos se recuperan al reabrir. No se promete grabación continua con el iPhone bloqueado.
 
@@ -38,11 +38,11 @@ Abrir `http://localhost:8000`. En producción, publicar el contenido de `dist/` 
 
 El workflow `.github/workflows/pages.yml` verifica, construye y publica en GitHub Pages al subir a `main`. La fuente de Pages debe ser **GitHub Actions**.
 
-El código de aplicación no depende de bibliotecas externas ni carga fuentes o servicios de terceros. Las dependencias npm se utilizan solo en las pruebas.
+La app local no depende de bibliotecas externas. Al conectar Drive se carga Google Identity Services y se usa la API de Drive. Las dependencias npm se utilizan solo en las pruebas.
 
 ## Verificación
 
-42 pruebas automatizadas: persistencia tras reapertura, orden por edición y ajuste persistido, listas/archivo/restauración, sanitización, audio adjunto, MIME compatible, pausa/reanudación, fallos de permisos y almacenamiento, recuperación, backup con bytes originales y shell offline.
+57 pruebas automatizadas: persistencia tras reapertura, orden por edición y ajuste persistido, listas/archivo/restauración, sanitización, audio adjunto, MIME compatible, pausa/reanudación, fallos de permisos y almacenamiento, recuperación, backup con bytes originales y shell offline.
 
 Se verificó la carga de la publicación de Pages en un navegador real. Las pruebas automatizadas usan un DOM simulado y IndexedDB simulado; la grabación/instalación en un iPhone físico queda pendiente de comprobar.
 
@@ -59,3 +59,9 @@ Para publicar cambios, aumentar `src/version.js`, `package.json`, `package-lock.
 Al migrar desde una instalación anterior sin actualizador, puede ser necesario cerrar todas las ventanas y pestañas de Guarda y abrirla nuevamente una vez; no borrar los datos del sitio. Las versiones siguientes se actualizan automáticamente.
 
 En v0.3.2 se corrigieron cierres simultáneos del editor, mensajes de error al deshacer y cancelación del arrastre al usar dos dedos, pasar al fondo o redibujarse el tablero. Al soltar se verifica la posición final del dedo/mouse.
+
+## Google Drive (v0.4.0)
+
+Conexión opcional desde Configuración → Google Drive. Implementa sincronización de notas, listas, etiquetas y archivos con la cuenta de cada usuario, conservación de conflictos y protección transaccional de ediciones locales. Falta configurar el ID de OAuth para habilitar la autorización real. Los tokens solo viven en memoria y puede ser necesario reconectar al reabrir la app o vencer la sesión. No se activan servicios pagos desde Guarda.
+
+[Configuración y límites de Google Drive](docs/google-drive.md). [Privacidad](https://guerrasur.github.io/Guarda/privacidad.html).

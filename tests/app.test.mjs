@@ -91,3 +91,6 @@ await test('an undo failure leaves its error message visible instead of hiding t
  const original=GuardaStore.prototype.putNote,log=console.error;GuardaStore.prototype.putNote=async()=>{throw new Error('Fallo de guardado de prueba');};console.error=()=>{};
  try{await $('toast').querySelector('button').onclick();assert.equal($('toast').hidden,false);assert.match($('toast').textContent,/Fallo de guardado de prueba/);assert.equal((await store.allNotes()).find(n=>n.id===id).archived,true);}finally{GuardaStore.prototype.putNote=original;console.error=log;}
 });
+await test('Drive configuration starts disabled until an OAuth client ID is supplied and keeps local notes',async()=>{
+ const count=(await store.allNotes()).length;$('settings-toggle').onclick();$('drive-settings').onclick();await until(()=>$('drive-panel-status'));assert.match($('drive-panel-status').textContent,/Falta configurar/);assert.equal($('drive-connect').disabled,true);assert.equal($('drive-client-id').value,'');assert.equal((await store.allNotes()).length,count);$('utility-dialog').close();
+});
