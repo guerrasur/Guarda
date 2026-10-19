@@ -1,0 +1,60 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { parseHTML } from 'linkedom';
+import { indexedDB } from 'fake-indexeddb';
+import { GuardaStore } from '../src/storage.js';
+
+const pause=ms=>new Promise(r=>nativeTimeout(r,ms));
+async function until(fn){for(let i=0;i<100;i++){if(await fn())return;await pause(10);}throw new Error('Timed out waiting for application state');}
+const nativeInterval=globalThis.setInterval;
+const nativeTimeout=globalThis.setTimeout;
+const channels=[];
+class Channel{constructor(){channels.push(this);}postMessage(){}close(){}}
+const {document,window}=parseHTML(await readFile(new URL('../index.html',import.meta.url),'utf8'));
+Object.assign(globalThis,{document,window,indexedDB,BroadcastChannel:Channel,innerWidth:1365,innerHeight:900,location:{hash:''},matchMedia:()=>({matches:false,addEventListener(){}})});
+Object.defineProperty(globalThis,'navigator',{value:{userAgent:'Test Safari',storage:{persist:async()=>true}},configurable:true});
+globalThis.setInterval=(...args)=>{const t=nativeInterval(...args);t.unref();return t;};
+globalThis.setTimeout=(...args)=>{const t=nativeTimeout(...args);t.unref();return t;};
+if(!globalThis.CustomEvent)globalThis.CustomEvent=class extends Event{constructor(t,o={}){super(t);this.detail=o.detail;}};
+for(const e of document.querySelectorAll('*')){e.getBoundingClientRect=()=>({left:100,top:100,bottom:140,width:400,height:200});}
+for(const d of document.querySelectorAll('dialog')){d.showModal=()=>{d.open=true;};d.close=()=>{d.open=false;};}
+Object.defineProperty(window.HTMLSelectElement.prototype,'value',{get(){return this.querySelector('option[selected]')?.getAttribute('value')||this.querySelector('option')?.getAttribute('value')||'';},set(value){for(const o of this.querySelectorAll('option'))o.toggleAttribute('selected',o.getAttribute('value')===value);},configurable:true});
+Object.defineProperty(window.HTMLInputElement.prototype,'checked',{get(){return this.hasAttribute('checked');},set(value){this.toggleAttribute('checked',!!value);},configurable:true});
+const $=id=>document.getElementById(id);
+const app=await import('../src/app.js');
+const store=new GuardaStore({broadcast:false});
+const input=(element,value)=>{element.value=value;element.dispatchEvent(new window.Event('input',{bubbles:true}));};
+async function create(title,body='Texto'){await $('new-note').onclick();input($('note-title'),title);$('editor-body').innerHTML=body;$('editor-body').dispatchEvent(new window.Event('input',{bubbles:true}));await $('editor-close').onclick();await until(()=>$('editor-layer').hidden);}
+
+await test('UI saves, reopens, searches and preserves notes across database connections',async()=>{
+ await until(()=>$('navigation').children.length>0);await create('Primera idea','Un texto <b>con formato</b>');
+ let saved=await store.allNotes();assert.equal(saved.length,1);assert.equal(saved[0].title,'Primera idea');assert.match(saved[0].body,/con formato/);
+ const card=document.querySelector('[data-note]');card.dispatchEvent(new window.Event('click',{bubbles:true}));await until(()=>!$('editor-layer').hidden);assert.equal($('note-title').value,'Primera idea');await $('editor-close').onclick();await until(()=>$('editor-layer').hidden);
+ input($('search'),'inexistente');await until(()=>!$('empty-state').hidden);assert.equal(document.querySelectorAll('[data-note]').length,0);$('clear-search').onclick();await until(()=>document.querySelectorAll('[data-note]').length===1);
+ const reopened=new GuardaStore({broadcast:false});assert.equal((await reopened.allNotes())[0].title,'Primera idea');reopened.close();
+});
+await test('a single character edit moves an older note first by default; settings can disable it',async()=>{
+ await pause(15);await create('Segunda idea');let saved=await store.allNotes();const first=saved.find(n=>n.title==='Primera idea'),second=saved.find(n=>n.title==='Segunda idea');assert.ok(second.order>first.order);
+ document.querySelector(`[data-note="${first.id}"]`).dispatchEvent(new window.Event('click',{bubbles:true}));await until(()=>!$('editor-layer').hidden);await pause(15);input($('note-title'),'Primera ideax');await $('editor-close').onclick();await until(()=>$('editor-layer').hidden);saved=await store.allNotes();const updated=saved.find(n=>n.id===first.id);assert.ok(updated.order>second.order);assert.equal(document.querySelector('[data-note]').dataset.note,first.id);
+ const before=updated.order;document.querySelector(`[data-note="${first.id}"]`).dispatchEvent(new window.Event('click',{bubbles:true}));await until(()=>!$('editor-layer').hidden);await pause(15);await $('editor-close').onclick();await until(()=>$('editor-layer').hidden);assert.equal((await store.allNotes()).find(n=>n.id===first.id).order,before,'opening without editing must not reorder');
+ $('settings-toggle').onclick();const checkbox=$('updated-first-setting');assert.equal(checkbox.checked,true);checkbox.checked=false;await checkbox.onchange({target:checkbox});$('utility-dialog').close();
+ document.querySelector(`[data-note="${second.id}"]`).dispatchEvent(new window.Event('click',{bubbles:true}));await until(()=>!$('editor-layer').hidden);input($('note-title'),'Segunda ide');await $('editor-close').onclick();await until(()=>$('editor-layer').hidden);assert.equal((await store.allNotes()).find(n=>n.id===second.id).order,second.order);assert.equal(await store.getSetting('updatedFirst',true),false);
+});
+await test('checklists persist checked items; archive and restore preserve note text',async()=>{
+ await $('new-list').onclick();input($('note-title'),'Lista');const field=$('editor-checklist').querySelector('input[type=text]');input(field,'Comprar pan');const box=$('editor-checklist').querySelector('input[type=checkbox]');box.checked=true;box.dispatchEvent(new window.Event('change',{bubbles:true}));await $('editor-close').onclick();await until(()=>$('editor-layer').hidden);const n=(await store.allNotes()).find(n=>n.title==='Lista');assert.equal(n.items[0].text,'Comprar pan');assert.equal(n.items[0].checked,true);
+ const card=document.querySelector(`[data-note="${n.id}"]`);card.querySelector('[data-action=archive]').dispatchEvent(new window.Event('click',{bubbles:true}));await until(async()=>(await store.allNotes()).find(x=>x.id===n.id).archived===true);document.querySelector('[data-route=archive]').dispatchEvent(new window.Event('click',{bubbles:true}));await until(()=>document.querySelector(`[data-note="${n.id}"]`));assert.match($('notes-area').textContent,/Lista/);
+ document.querySelector(`[data-note="${n.id}"] [data-action=archive]`).dispatchEvent(new window.Event('click',{bubbles:true}));await until(async()=>(await store.allNotes()).find(x=>x.id===n.id).archived===false);
+});
+await test('rich note sanitizer strips active content and all unsafe attributes',()=>{
+ const html=app.sanitizeRich('<b onclick="alert(1)">Hola</b><img src=x onerror="alert(1)"><script>alert(1)</script><a href="javascript:alert(1)">enlace</a><svg onload="alert(1)"></svg>');assert.equal(html,'<b>Hola</b>enlace');
+});
+store.close();
+await test('recording is saved as an audio attachment, with note text retained and playable after reopening',async()=>{
+ navigator.mediaDevices={getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})};
+ globalThis.MediaRecorder=class {static isTypeSupported(type){return type==='audio/mp4';}constructor(stream,options){this.mimeType=options.mimeType;this.state='inactive';}start(){this.state='recording';}pause(){this.state='paused';}resume(){this.state='recording';}stop(){this.state='inactive';queueMicrotask(()=>{this.ondataavailable?.({data:new Blob(['real audio bytes'],{type:'audio/mp4'})});this.onstop?.();});}};
+ document.querySelector('[data-route=notes]').dispatchEvent(new window.Event('click',{bubbles:true}));await until(()=>!$('composer').hidden);await $('new-audio').onclick();assert.equal($('record-panel').hidden,false);input($('note-title'),'Idea hablada');$('editor-body').innerHTML='Texto junto al audio';$('editor-body').dispatchEvent(new window.Event('input',{bubbles:true}));await $('record-stop').onclick();assert.equal($('record-panel').hidden,true);assert.equal($('editor-audios').querySelectorAll('audio').length,1);await $('editor-close').onclick();await until(()=>$('editor-layer').hidden);
+ const n=(await store.allNotes()).find(n=>n.title==='Idea hablada');assert.match(n.body,/Texto junto/);assert.equal(n.attachments.length,1);const audio=await store.getAttachment(n.attachments[0]);assert.equal(audio.type,'audio/mp4');assert.equal(await audio.blob.text(),'real audio bytes');assert.equal(audio.draft,undefined);
+ document.querySelector(`[data-note="${n.id}"]`).dispatchEvent(new window.Event('click',{bubbles:true}));await until(()=>!!$('editor-audios').querySelector('audio'));assert.match($('editor-audios').querySelector('audio').getAttribute('src'),/^blob:/);await $('editor-close').onclick();await until(()=>$('editor-layer').hidden);
+ const backup=await store.exportBackup();assert.ok(backup.attachments.some(a=>a.id===audio.id&&a.data));
+});
