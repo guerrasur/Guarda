@@ -157,6 +157,22 @@ export class GuardaStore extends EventTarget {
       attachments.delete(id);
     }, { type: 'delete-attachment', id });
   }
+  async addKeepImport({notes,labels,attachments,skipped=0}) {
+    notes.forEach(validateNote);labels.forEach(validateLabel);attachments.forEach(validateAttachment);
+    const noteIds=new Set(notes.map(n=>n.id)),files=new Map(attachments.map(a=>[a.id,a]));
+    assert(noteIds.size===notes.length&&files.size===attachments.length,'La importación contiene identificadores repetidos.');
+    for(const n of notes)assert(n.attachments.every(id=>files.get(id)?.noteId===n.id),'Una nota importada contiene un adjunto inexistente.');
+    for(const a of attachments)assert(noteIds.has(a.noteId)&&notes.find(n=>n.id===a.noteId).attachments.includes(a.id),'Un adjunto importado no pertenece a una nota.');
+    return this._run(STORES,'readwrite',async tx=>{
+      const [existingIds,existingLabels,existingFiles]=await Promise.all([requestResult(tx.objectStore('notes').getAllKeys()),requestResult(tx.objectStore('labels').getAll()),requestResult(tx.objectStore('attachments').getAllKeys())]);
+      const known=new Set(existingIds),fileIds=new Set(existingFiles),labelIds=new Set(existingLabels.map(l=>l.id)),names=new Map(existingLabels.map(l=>[l.name.normalize('NFC').trim().toLocaleLowerCase('es'),l.id]));
+      const added=notes.filter(n=>!known.has(n.id)),needed=new Set(added.flatMap(n=>n.labels)),mapping=new Map(),newLabels=[];
+      for(const l of labels){if(!needed.has(l.id))continue;const key=l.name.normalize('NFC').trim().toLocaleLowerCase('es');if(names.has(key)){mapping.set(l.id,names.get(key));continue;}assert(!labelIds.has(l.id),'Las etiquetas cambiaron durante la importación. Volvé a seleccionar la copia.');labelIds.add(l.id);names.set(key,l.id);newLabels.push(l);}
+      for(const l of newLabels)tx.objectStore('labels').put(l);
+      let fileCount=0;for(const n of added){const next={...n,labels:[...new Set(n.labels.map(id=>mapping.get(id)||id))]};assert(next.labels.every(id=>labelIds.has(id)),'Falta una etiqueta de la nota importada.');for(const id of n.attachments){assert(!fileIds.has(id),'Ya existe un adjunto con el mismo identificador.');tx.objectStore('attachments').put(files.get(id));fileCount++;}tx.objectStore('notes').put(next);}
+      return {imported:added.length,skipped:skipped+notes.length-added.length,attachments:fileCount};
+    },{type:'keep-import'});
+  }
   async getSetting(key, fallback) {
     const record = await this._run(['settings'], 'readonly', tx => requestResult(tx.objectStore('settings').get(key)));
     return record ? record.value : fallback;

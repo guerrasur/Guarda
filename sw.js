@@ -1,7 +1,7 @@
 const CACHE='guarda-shell-GUARDA_BUILD_VERSION';
 const VERSION='GUARDA_APP_VERSION';
 const BUILD='GUARDA_BUILD_VERSION';
-const SHELL=['./','./index.html','./src/app.js','./src/drive-config.js','./src/cloud-merge.js','./src/drive-client.js','./src/drive-sync.js','./src/drive-ui.js','./src/styles.css','./src/icons.js','./src/storage.js','./src/recorder.js','./src/viewport.js','./src/note-drag.js','./src/updater.js','./src/version.js','./manifest.webmanifest','./guardia-icon.png','./favicon.ico','./favicon-16x16.png','./favicon-32x32.png','./apple-touch-icon.png','./icon-192.png','./icon-512.png'];
+const SHELL=['./','./index.html','./src/app.js','./src/keep-ui.js','./src/keep-import.js','./src/vendor/fflate.js','./src/drive-config.js','./src/cloud-merge.js','./src/drive-client.js','./src/drive-sync.js','./src/drive-ui.js','./src/styles.css','./src/icons.js','./src/storage.js','./src/recorder.js','./src/viewport.js','./src/note-drag.js','./src/updater.js','./src/version.js','./manifest.webmanifest','./guardia-icon.png','./favicon.ico','./favicon-16x16.png','./favicon-32x32.png','./apple-touch-icon.png','./icon-192.png','./icon-512.png'];
 self.addEventListener('message',event=>{if(event.data?.type==='RELEASE_INFO')event.ports[0]?.postMessage({version:VERSION,build:BUILD});if(event.data?.type==='SKIP_WAITING')self.skipWaiting();});
 self.addEventListener('install',event=>{event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(SHELL)));});
 self.addEventListener('activate',event=>{event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('guarda-shell-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim()));});

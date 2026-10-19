@@ -38,11 +38,11 @@ Abrir `http://localhost:8000`. En producción, publicar el contenido de `dist/` 
 
 El workflow `.github/workflows/pages.yml` verifica, construye y publica en GitHub Pages al subir a `main`. La fuente de Pages debe ser **GitHub Actions**.
 
-La app local no depende de bibliotecas externas. Al conectar Drive se carga Google Identity Services y se usa la API de Drive. Las dependencias npm se utilizan solo en las pruebas.
+El procesamiento local de ZIP usa una copia de fflate 0.8.2 incluida en la app (licencia MIT en src/vendor/fflate-LICENSE.txt); no se descarga código durante la importación. Al conectar Drive se carga Google Identity Services y se usa la API de Drive. Las dependencias npm se utilizan solo en las pruebas.
 
 ## Verificación
 
-57 pruebas automatizadas: persistencia tras reapertura, orden por edición y ajuste persistido, listas/archivo/restauración, sanitización, audio adjunto, MIME compatible, pausa/reanudación, fallos de permisos y almacenamiento, recuperación, backup con bytes originales y shell offline.
+66 pruebas automatizadas: persistencia tras reapertura, orden por edición y ajuste persistido, listas/archivo/restauración, sanitización, audio adjunto, MIME compatible, pausa/reanudación, fallos de permisos y almacenamiento, recuperación, backup con bytes originales y shell offline.
 
 Se verificó la carga de la publicación de Pages en un navegador real. Las pruebas automatizadas usan un DOM simulado y IndexedDB simulado; la grabación/instalación en un iPhone físico queda pendiente de comprobar.
 
@@ -65,3 +65,13 @@ En v0.3.2 se corrigieron cierres simultáneos del editor, mensajes de error al d
 Conexión opcional desde Configuración → Google Drive. Implementa sincronización de notas, listas, etiquetas y archivos con la cuenta de cada usuario, conservación de conflictos y protección transaccional de ediciones locales. El ID público de OAuth de GuardaNote está incorporado desde v0.4.1. La primera autorización real debe completarse en Google desde Conectar Google Drive. Los tokens solo viven en memoria y puede ser necesario reconectar al reabrir la app o vencer la sesión. No se activan servicios pagos desde Guarda.
 
 [Configuración y límites de Google Drive](docs/google-drive.md). [Privacidad](https://guerrasur.github.io/Guarda/privacidad.html).
+
+## Importar Google Keep (v0.5.0)
+
+Configuración → **Importar notas de Keep** abre el paso a paso de Google Takeout, con enlace y selección local de ZIP/JSON. Elegir solo Keep en Takeout, exportar una vez como ZIP y descargar la copia. No hace falta descomprimirla; si la exportación tiene varias partes, seleccionarlas juntas. También se admiten JSON sueltos y sus adjuntos.
+
+La vista previa muestra notas, archivos, duplicados y adjuntos faltantes antes de confirmar. La importación es aditiva y transaccional: no reemplaza notas existentes, evita reimportar copias idénticas y conserva texto, listas/casillas, etiquetas, fechas, colores equivalentes, fijadas, archivo, imágenes/dibujos y audio. Los colaboradores y recordatorios no se transfieren. No hay sincronización continua con Keep. Una nota modificada en una nueva exportación se incorpora como copia; no sobrescribe la versión ya importada.
+
+Máximo 100 MB de entrada por selección, 200 MB descomprimidos, 50 MB por adjunto y 8 MB por JSON. Las exportaciones mayores deben dividirse. No se ejecuta el HTML de Takeout ni se descargan adjuntos desde URLs. Si Drive está conectado, las notas se sincronizan como las demás notas de Guarda.
+
+Referencias: https://support.google.com/keep/answer/10017039 y https://support.google.com/accounts/answer/3024190. La compatibilidad se probó con fixtures ZIP/JSON representativos; un archivo real del usuario puede revelar variantes adicionales del formato.
