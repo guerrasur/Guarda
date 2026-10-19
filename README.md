@@ -41,8 +41,8 @@ El código de aplicación no depende de bibliotecas externas ni carga fuentes o 
 
 ## Verificación
 
-20 pruebas automatizadas: persistencia tras reapertura, orden por edición y ajuste persistido, listas/archivo/restauración, sanitización, audio adjunto, MIME compatible, pausa/reanudación, fallos de permisos y almacenamiento, recuperación, backup con bytes originales y shell offline.
+22 pruebas automatizadas: persistencia tras reapertura, orden por edición y ajuste persistido, listas/archivo/restauración, sanitización, audio adjunto, MIME compatible, pausa/reanudación, fallos de permisos y almacenamiento, recuperación, backup con bytes originales y shell offline.
 
-El entorno no dispuso del control de navegador de QA requerido para probar una previsualización local. La verificación automatizada usa un DOM simulado y IndexedDB simulado; la grabación/instalación en un iPhone físico queda pendiente de comprobar.
+Se verificó la carga de la publicación de Pages en un navegador real. Las pruebas automatizadas usan un DOM simulado y IndexedDB simulado; la grabación/instalación en un iPhone físico queda pendiente de comprobar.
 
 [Registro de observaciones de Keep y límites de REA](docs/keep-observaciones.md).

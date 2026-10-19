@@ -58,3 +58,15 @@ await test('recording is saved as an audio attachment, with note text retained a
  document.querySelector(`[data-note="${n.id}"]`).dispatchEvent(new window.Event('click',{bubbles:true}));await until(()=>!!$('editor-audios').querySelector('audio'));assert.match($('editor-audios').querySelector('audio').getAttribute('src'),/^blob:/);await $('editor-close').onclick();await until(()=>$('editor-layer').hidden);
  const backup=await store.exportBackup();assert.ok(backup.attachments.some(a=>a.id===audio.id&&a.data));
 });
+await test('closing while audio is being committed waits for the complete audio instead of orphaning it',async()=>{
+ await $('new-audio').onclick();input($('note-title'),'Cierre durante guardado');
+ const original=GuardaStore.prototype.attachToNote;let release,entered=false;
+ const gate=new Promise(resolve=>release=resolve);
+ GuardaStore.prototype.attachToNote=async function(note,attachment,options){if(!attachment.draft){entered=true;await gate;}return original.call(this,note,attachment,options);};
+ try{const stop=$('record-stop').onclick();await until(()=>entered);const closing=$('editor-close').onclick();await pause(20);assert.equal($('editor-layer').hidden,false,'must retain editor until commit completes');release();await stop;await closing;await until(()=>$('editor-layer').hidden);const n=(await store.allNotes()).find(n=>n.title==='Cierre durante guardado');assert.equal(n.attachments.length,1);const a=await store.getAttachment(n.attachments[0]);assert.equal(a.draft,undefined);assert.equal(await a.blob.text(),'real audio bytes');}finally{GuardaStore.prototype.attachToNote=original;release();}
+});
+await test('restoring a backup with interrupted recording fragments recovers visible audio immediately',async()=>{
+ const other=new GuardaStore({name:'backup-with-fragments',broadcast:false});const n={id:'restored-note',title:'Audio interrumpido',body:'Texto',items:[],labels:[],attachments:['fragment-1'],createdAt:Date.now(),order:Date.now()};await other.putNote(n);await other.putAttachment({id:'fragment-1',noteId:n.id,blob:new Blob(['recover me'],{type:'audio/mp4'}),type:'audio/mp4',name:'Fragmento',draft:true,recordingId:'interrupted-recording',index:0,duration:2,createdAt:Date.now()});const backup=await other.exportBackup();other.close();
+ $('backup-file').onchange({target:{files:[{text:async()=>JSON.stringify(backup)}],value:''}});await until(()=>$('utility-dialog').open&&$('utility-content').textContent.includes('Restaurar esta copia'));
+ const restore=[...$('utility-content').querySelectorAll('[data-dialog-action]')].find(e=>e.textContent==='Restaurar');await $('utility-content').onclick({target:restore});await until(()=>document.querySelector(`[data-note="${n.id}"] audio`));const restored=(await store.allNotes()).find(x=>x.id===n.id);assert.equal(restored.attachments.length,1);assert.notEqual(restored.attachments[0],'fragment-1');const a=await store.getAttachment(restored.attachments[0]);assert.equal(await a.blob.text(),'recover me');assert.equal(a.draft,undefined);
+});
