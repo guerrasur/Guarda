@@ -61,3 +61,9 @@ test('opening an editor while downloading defers safely and resumes without anot
  await assert.rejects(b.sync.sync(),error=>error.code==='SYNC_DEFERRED');assert.equal(b.client.connected,true);assert.deepEqual((await b.store.allNotes()).map(n=>n.id),['local']);
  b.client.readSnapshot=read;busy=false;await b.sync.sync();assert.deepEqual(new Set((await b.store.allNotes()).map(n=>n.id)),new Set(['local','remote']));
 });
+test('arbitrary file attachments preserve original names, MIME and exact bytes across Drive and backup restoration',async t=>{
+ const f=await fixture(t),a=await f.device(),b=await f.device(),c=await f.device();const n=note('files');
+ const file={id:'document',noteId:n.id,name:'Escena.pdf',type:'application/pdf',originalFile:true,blob:new Blob([new Uint8Array([37,80,68,70,0,255,128])],{type:'application/pdf'})};await a.store.attachToNote(n,file);await a.sync.sync();await b.sync.sync();
+ const remote=await b.store.getAttachment(file.id);assert.equal(remote.name,file.name);assert.equal(remote.type,file.type);assert.equal(remote.originalFile,true);assert.deepEqual(new Uint8Array(await remote.blob.arrayBuffer()),new Uint8Array(await file.blob.arrayBuffer()));
+ const backup=await b.store.exportBackup();await c.store.importBackup(backup);assert.deepEqual(new Uint8Array(await (await c.store.getAttachment(file.id)).blob.arrayBuffer()),new Uint8Array(await file.blob.arrayBuffer()));
+});

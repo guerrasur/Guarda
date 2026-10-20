@@ -119,3 +119,28 @@ await test('opening text notes and checklists focuses the dialog instead of an e
 await test('app information is available at the bottom of the menu with author, contact and live version',()=>{
  $('app-info').onclick();assert.equal($('utility-dialog').open,true);assert.match($('utility-content').textContent,/Lucio Guerra/);assert.match($('utility-content').textContent,/en desarrollo/);assert.equal($('utility-content').querySelector('a').getAttribute('href'),'mailto:lucioguerrasur@gmail.com');assert.equal($('sidebar').querySelector('.sidebar-bottom').lastElementChild.id,'app-info');$('utility-dialog').close();
 });
+await test('paperclip offers Photos and Files, persists multiple original files, reopens them and removes one safely',async()=>{
+ await create('Archivos de prueba');const n=(await store.allNotes()).find(n=>n.title==='Archivos de prueba');document.querySelector(`[data-note="${n.id}"]`).dispatchEvent(new window.Event('click',{bubbles:true}));await until(()=>!$('editor-layer').hidden);
+ $('editor-image').onclick({currentTarget:$('editor-image')});assert.match($('popover').textContent,/Fototeca/);assert.match($('popover').textContent,/Archivos/);assert.match($('popover').textContent,/20 MB/);assert.equal($('attachment-file').hasAttribute('accept'),false);assert.equal($('image-file').getAttribute('accept'),'image/*');
+ let chosen=false;const originalClick=$('attachment-file').click;$('attachment-file').click=()=>chosen=true;$('attach-files').onclick();assert.equal(chosen,true);$('attachment-file').click=originalClick;
+ const pdf=Object.assign(new Blob(['%PDF-original'],{type:'application/pdf'}),{name:'Escena.pdf'}),zip=Object.assign(new Blob([new Uint8Array([0,255,1,128])],{type:'application/zip'}),{name:'material.zip'});
+ Object.defineProperty($('attachment-file'),'files',{value:[pdf,zip],configurable:true});await $('attachment-file').onchange({target:$('attachment-file')});
+ const saved=(await store.allNotes()).find(x=>x.id===n.id);assert.equal(saved.attachments.length,2);const files=await Promise.all(saved.attachments.map(id=>store.getAttachment(id)));assert.equal(await files[0].blob.text(),'%PDF-original');assert.equal(files[0].name,'Escena.pdf');assert.deepEqual(new Uint8Array(await files[1].blob.arrayBuffer()),new Uint8Array([0,255,1,128]));assert.equal($('editor-files').querySelectorAll('[data-attachment]').length,2);assert.equal($('attachment-file').value,'');
+ await $('editor-close').onclick();assert.match(document.querySelector(`[data-note="${n.id}"]`).textContent,/Escena.pdf/);document.querySelector(`[data-note="${n.id}"]`).dispatchEvent(new window.Event('click',{bubbles:true}));await until(()=>$('editor-files').querySelectorAll('[data-attachment]').length===2);
+ $('editor-files').querySelector('[data-action=delete-attachment]').dispatchEvent(new window.Event('click',{bubbles:true}));await until(async()=>(await store.allNotes()).find(x=>x.id===n.id).attachments.length===1);assert.equal(await store.getAttachment(files[0].id),undefined);assert.ok(await store.getAttachment(files[1].id));await $('editor-close').onclick();
+});
+await test('oversized file selections save nothing and show a clear size limit',async()=>{
+ await $('new-note').onclick();input($('note-title'),'Límite de archivos');const good=Object.assign(new Blob(['ok']),{name:'ok.txt'}),bad={name:'grande.zip',type:'application/zip',size:21*1024*1024};
+ Object.defineProperty($('attachment-file'),'files',{value:[good,bad],configurable:true});await $('attachment-file').onchange({target:$('attachment-file')});assert.match($('toast').textContent,/20 MB/);assert.equal($('editor-files').querySelectorAll('[data-attachment]').length,0);await $('editor-close').onclick();assert.equal((await store.allNotes()).find(x=>x.title==='Límite de archivos').attachments.length,0);
+});
+await test('closing a note waits for file storage and downloaded attachments keep their original filename',async()=>{
+ await $('new-note').onclick();input($('note-title'),'Adjunto en proceso');
+ const originalAttach=GuardaStore.prototype.attachToNote;let release,entered=false;GuardaStore.prototype.attachToNote=async function(...args){entered=true;await new Promise(resolve=>release=resolve);return originalAttach.apply(this,args);};
+ const file=Object.assign(new Blob(['audio original'],{type:'audio/mpeg'}),{name:'tema.mp3'});Object.defineProperty($('attachment-file'),'files',{value:[file],configurable:true});
+ try{
+  const pending=$('attachment-file').onchange({target:$('attachment-file')});await until(()=>entered);const closing=$('editor-close').onclick();await pause(10);assert.equal($('editor-layer').hidden,false);release();await pending;await closing;assert.equal($('editor-layer').hidden,true);
+ }finally{GuardaStore.prototype.attachToNote=originalAttach;}
+ const n=(await store.allNotes()).find(n=>n.title==='Adjunto en proceso');assert.equal(n.attachments.length,1);const stored=await store.getAttachment(n.attachments[0]);assert.equal(stored.name,'tema.mp3');assert.equal(await stored.blob.text(),'audio original');
+ const originalClick=window.HTMLAnchorElement.prototype.click;let filename;window.HTMLAnchorElement.prototype.click=function(){filename=this.download;};
+ try{document.querySelector(`[data-note="${n.id}"] [data-action=download-audio]`).dispatchEvent(new window.Event('click',{bubbles:true}));await until(()=>filename);assert.equal(filename,'tema.mp3');}finally{window.HTMLAnchorElement.prototype.click=originalClick;}
+});
