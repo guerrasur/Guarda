@@ -2,6 +2,13 @@
 
 App web instalable de notas, listas y grabaciones de audio, inspirada en Google Keep. Identidad propia con el guardia medieval aprobado.
 
+v0.7.0 (preparada): servidor de renovación automática de Drive y sesión duradera
+por dispositivo, con permisos cifrados, aislamiento de cuentas y recuperación de
+red sin ventanas de Google. Pendiente de configurar Cloudflare Workers Free/D1
+y la redirección de Google antes de habilitarlo. La URL del servicio está vacía
+y mantiene la integración anterior hasta entonces.
+[Activación y arquitectura](server/README.md).
+
 v0.6.15: recuperación temporal de Drive al recargar, renovación de consentimiento
 existente al interactuar con el tablero y reintento tras fallos de conexión.
 Respeta editores y diálogos, detiene intentos tras cancelar y verifica la cuenta
@@ -44,7 +51,7 @@ La captura del micrófono necesita HTTPS o localhost y permiso del usuario. Se p
 
 ## Desarrollo y publicación
 
-Requiere Node.js 22 o posterior.
+Requiere Node.js 22.13 o posterior.
 
 ```sh
 npm ci
@@ -58,11 +65,11 @@ Abrir `http://localhost:8000`. En producción, publicar el contenido de `dist/` 
 
 El workflow `.github/workflows/pages.yml` verifica, construye y publica en GitHub Pages al subir a `main`. La fuente de Pages debe ser **GitHub Actions**.
 
-El procesamiento local de ZIP usa una copia de fflate 0.8.2 incluida en la app (licencia MIT en src/vendor/fflate-LICENSE.txt); no se descarga código durante la importación. Al conectar Drive se carga Google Identity Services y se usa la API de Drive. Las dependencias npm se utilizan solo en las pruebas.
+El procesamiento local de ZIP usa una copia de fflate 0.8.2 incluida en la app (licencia MIT en src/vendor/fflate-LICENSE.txt); no se descarga código durante la importación. La conexión anterior carga Google Identity Services; el servicio persistente opcional usa el flujo de código de Google. Las dependencias npm son para desarrollo, pruebas y despliegue; no se cargan en la app.
 
 ## Verificación
 
-150 pruebas automatizadas: persistencia tras reapertura, orden por edición y ajuste persistido, listas/archivo/restauración, sanitización, audio adjunto, MIME compatible, pausa/reanudación, fallos de permisos y almacenamiento, recuperación, backup con bytes originales y shell offline.
+Pruebas automatizadas de persistencia tras reapertura, orden por edición y ajuste persistido, listas/archivo/restauración, sanitización, audio adjunto, MIME compatible, pausa/reanudación, fallos de permisos y almacenamiento, recuperación, backup con bytes originales y shell offline. La conexión persistente agrega OAuth con Google simulado y SQLite real: renovación, revocación, aislamiento de cuentas, callback vinculado al navegador, concurrencia y desconexión sin red.
 
 Se verificó la carga de la publicación de Pages en un navegador real. Las pruebas automatizadas usan un DOM simulado y IndexedDB simulado; la grabación/instalación en un iPhone físico queda pendiente de comprobar.
 

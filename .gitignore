@@ -1,4 +1,10 @@
 node_modules/
 dist/
+.wrangler/
+server/.wrangler/
+.dev.vars
+.dev.vars.*
+server/.dev.vars
+server/.dev.vars.*
 .openai/*.tar.gz
 .openai/*.tgz

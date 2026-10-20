@@ -15,6 +15,21 @@ test('committed notes and settings survive a new database connection', async t =
   assert.deepEqual(await second.allNotes(), [note()]); assert.equal(await second.getSetting('theme', 'light'), 'dark');
   assert.equal(await second.getSetting('missing', 42), 42);
 });
+test('durable device credentials and pending revocations never enter backups or cloud payloads', async t => {
+  const store = await open(t);
+  await store.setSetting('drive-broker-session', { session: 'private-device-session' });
+  await store.setSetting('drive-broker-revocations', [{ session: 'private-revocation' }]);
+  await store.setSetting('theme', 'dark');
+  for (const options of [{}, { accountId: 'owner' }]) {
+    const backup = await store.exportBackup(options);
+    assert.doesNotMatch(JSON.stringify(backup), /private-device-session|private-revocation/);
+    assert.equal(backup.settings.some(record => record.id === 'theme'), true);
+  }
+  const backup = await store.exportBackup();
+  backup.settings.push({ id: 'drive-broker-session', value: { session: 'injected' } });
+  const target = await open(t); await target.importBackup(backup);
+  assert.equal(await target.getSetting('drive-broker-session', null), null);
+});
 test('deleting labels unlinks all notes; deleting note cascades audio files', async t => {
   const store = await open(t); await store.putLabel({ id: 'label-1', name: 'Ideas' });
   await store.putNote(note('note-1', { labels: ['label-1'], attachments: ['audio-1'] }));

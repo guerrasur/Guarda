@@ -1,0 +1,20 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "guarda-drive",
+  "main": "worker.js",
+  "compatibility_date": "2026-10-20",
+  "workers_dev": true,
+  "observability": { "enabled": false },
+  "vars": {
+    "APP_ORIGIN": "https://guerrasur.github.io",
+    "PUBLIC_ORIGIN": "https://guarda-drive.REPLACE_WITH_YOUR_SUBDOMAIN.workers.dev",
+    "GOOGLE_CLIENT_ID": "613370054779-e57i4ngllcd5t1vdivgl7qpfodon7ro9.apps.googleusercontent.com"
+  },
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "guarda-drive",
+    "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+    "migrations_dir": "migrations"
+  }],
+  "triggers": { "crons": ["0 4 * * *"] }
+}

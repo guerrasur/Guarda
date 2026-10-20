@@ -1,11 +1,13 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {parseHTML} from 'linkedom';import {initDrive} from '../src/drive-ui.js';import {DriveSync,SyncDeferredError} from '../src/drive-sync.js';import {DRIVE_SCOPE} from '../src/drive-client.js';
 import {DriveSessionBridge} from '../src/drive-session.js';import {GOOGLE_CLIENT_ID} from '../src/drive-config.js';
+import {brokerFixture} from './helpers/drive-broker.mjs';
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
 function fixture(saved,options={}){
  const {document,window}=parseHTML('<html><body><button id="drive-indicator" hidden></button><div id="panel"></div></body></html>');const values=new Map(Object.entries(saved));const requests=[];let config,fail=false,onChange,busy=false,retry,retryDelay,closed=0;
  const env={document,window,navigator:{onLine:true},AbortController,setTimeout:(fn,ms)=>{if(ms<90000){retry=fn;retryDelay=ms;return 0;}return setTimeout(fn,ms);},clearTimeout:id=>{if(id===0)retry=null;else clearTimeout(id);},setInterval:()=>0,fetch:async()=>Response.json({user:{permissionId:'owner',emailAddress:'owner@example.test'}}),google:{accounts:{oauth2:{hasGrantedAllScopes:r=>r.scope===DRIVE_SCOPE,initTokenClient:cfg=>{if(fail)throw Error('Google no disponible');config=cfg;return {requestAccessToken:oauthOptions=>{requests.push(oauthOptions);queueMicrotask(()=>options.authorize?options.authorize(cfg):cfg.callback({access_token:'token',scope:DRIVE_SCOPE,expires_in:3600}));}};}}}}};
+ Object.assign(env,options.env);
  const store={getSetting:async(k,fallback)=>values.has(k)?values.get(k):fallback,setSetting:async(k,v)=>values.set(k,v),addEventListener:(_,fn)=>onChange=fn};
- const errors=[];const ui=initDrive({store,env,isBusy:()=>busy,onApplied:async()=>{},utility:(_,html)=>document.getElementById('panel').innerHTML=html,closeUtility(){closed++;},showError:e=>errors.push(e)});
+ const errors=[];const ui=initDrive({store,env,brokerUrl:options.brokerUrl,isBusy:()=>busy,onApplied:async()=>{},utility:(_,html)=>document.getElementById('panel').innerHTML=html,closeUtility(){closed++;},showError:e=>errors.push(e)});
  return {ui,env,document,get closed(){return closed;},get retryDelay(){return retryDelay;},get hasRetry(){return !!retry;},values,requests,errors,setBusy:value=>busy=value,retry:()=>{const fn=retry;retry=null;return fn?.();},fail:value=>fail=value,config:()=>config,change:(type='note')=>onChange({detail:{type,id:type==='setting'?'theme':'note'}})};
 }
 test('previously linked Drive shows reconnect after reload, renews with account hint and remembers explicit disconnect',async()=>{
@@ -226,4 +228,22 @@ test('an explicitly disconnected device never reconnects from clicks or lifecycl
  const f=fixture({...linked,'drive-connection':{enabled:false}});await settle();gesture(f);
  f.env.window.dispatchEvent(new f.env.window.Event('online'));f.env.document.dispatchEvent(new f.env.window.Event('visibilitychange'));await settle();
  assert.equal(f.requests.length,0);assert.equal(f.ui.getState().enabled,false);assert.equal(f.ui.getState().state,'hidden');
+});
+test('persistent Drive restores and synchronizes on startup without clicks, OAuth scripts or worker handoff',async t=>{
+ const broker=await brokerFixture(t), authorization=await broker.authorize(), original=DriveSync.prototype.sync;let syncs=0;
+ DriveSync.prototype.sync=async function(){assert.equal(this.client.user.permissionId,'owner');syncs++;this.onStatus('Todo guardado en Google Drive');return {};};
+ try{
+  const f=fixture({...linked,'drive-broker-session':{broker:broker.env.PUBLIC_ORIGIN,clientId:GOOGLE_CLIENT_ID,session:authorization.session,accountId:'owner'}},{brokerUrl:broker.env.PUBLIC_ORIGIN,env:{fetch:async(url,options)=>broker.worker.fetch(new Request(url,{...options,headers:{...options.headers,Origin:broker.env.APP_ORIGIN}}),broker.env)}});
+  for(let i=0;i<100&&!f.ui.getState().connected;i++)await new Promise(resolve=>setTimeout(resolve,2));await settle();
+  assert.equal(f.ui.getState().state,'synced');assert.equal(syncs,1);assert.equal(f.requests.length,0);assert.equal(f.document.querySelectorAll('script').length,0);
+  await f.ui.open();assert.match(f.document.getElementById('drive-panel-status').textContent,/Sincroniz|guardad/i);
+  await f.document.getElementById('drive-disconnect').onclick();assert.equal(f.values.get('drive-broker-session'),null);assert.equal(f.ui.getState().enabled,false);
+  f.env.window.dispatchEvent(new f.env.window.Event('online'));await settle();assert.equal(f.ui.getState().enabled,false);assert.equal(syncs,1);
+ }finally{DriveSync.prototype.sync=original;}
+});
+test('persistent migration waits for one explicit authorization and never hijacks board clicks',async t=>{
+ const broker=await brokerFixture(t);
+ const f=fixture(linked,{brokerUrl:broker.env.PUBLIC_ORIGIN,env:{fetch:async(url,options)=>broker.worker.fetch(new Request(url,{...options,headers:{...options.headers,Origin:broker.env.APP_ORIGIN}}),broker.env)}});
+ for(let i=0;i<100&&f.ui.getState().state!=='reconnect';i++)await new Promise(resolve=>setTimeout(resolve,2));
+ gesture(f);await settle();assert.equal(f.requests.length,0);assert.equal(f.ui.getState().state,'reconnect');assert.match(f.ui.getState().message,/una vez/);
 });
