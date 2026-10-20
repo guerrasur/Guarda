@@ -9,34 +9,48 @@ export class DriveClient{
    if(!this.loading)this.loading=new Promise((resolve,reject)=>{const script=this.env.document.createElement('script');script.src='https://accounts.google.com/gsi/client';script.async=true;const timer=this.env.setTimeout(()=>{script.remove();this.loading=null;reject(Error('No se pudo cargar la conexión con Google. Revisá internet.'));},20000);script.onload=()=>{this.env.clearTimeout(timer);resolve();};script.onerror=()=>{this.env.clearTimeout(timer);script.remove();this.loading=null;reject(Error('No se pudo cargar la conexión con Google.'));};this.env.document.head.append(script);});
    await this.loading;
   }
-  this.oauth=this.env.google.accounts.oauth2.initTokenClient({client_id:clientId,scope:DRIVE_SCOPE,include_granted_scopes:false,
-   callback:response=>this.finishAuthorization(response),error_callback:()=>this.rejectAuthorization(Error('Se cerró o bloqueó la ventana de Google. Tocá Conectar para reintentar.'))});
+  this.oauthConfig={client_id:clientId,scope:DRIVE_SCOPE,include_granted_scopes:false};
+  this.oauth=this.env.google.accounts.oauth2.initTokenClient(this.oauthConfig);
  }
- rejectAuthorization(error){const pending=this.pending;this.pending=null;pending?.reject(error);}
- connect(){
+ rejectAuthorization(error,pending=this.pending){
+  if(!pending||pending!==this.pending)return;
+  this.env.clearTimeout(pending.timer);this.pending=null;pending.reject(error);
+ }
+ connect({hint='',selectAccount=false}={}){
   if(!this.oauth)return Promise.reject(Error('Primero configurá la conexión con Google.'));
   if(this.pending)return Promise.reject(Error('La conexión con Google ya está en curso.'));
-  return new Promise((resolve,reject)=>{this.pending={resolve,reject};try{this.oauth.requestAccessToken({prompt:'select_account'});}catch(error){this.rejectAuthorization(error);}});
+  return new Promise((resolve,reject)=>{
+   const pending={resolve,reject};this.pending=pending;
+   pending.timer=this.env.setTimeout(()=>this.rejectAuthorization(Error('Google no respondió. Volvé a tocar Reconectar; si no se abre la ventana, abrí Guarda en Safari o Chrome y permití las ventanas emergentes.'),pending),90000);
+   try{
+    // A fresh callback per attempt prevents a late popup from reviving a cancelled session.
+    this.oauth=this.env.google.accounts.oauth2.initTokenClient({...this.oauthConfig,callback:response=>this.finishAuthorization(response,pending),error_callback:error=>this.rejectAuthorization(Error(error?.type==='popup_failed_to_open'?'No se pudo abrir Google. Permití las ventanas emergentes o abrí Guarda en Safari o Chrome y reintentá.':'Se cerró la ventana de Google. Podés volver a conectar.'),pending)});
+    this.oauth.requestAccessToken({prompt:selectAccount||!hint?'select_account':'',...(hint?{hint}:{})});
+   }catch(error){this.rejectAuthorization(error,pending);}
+  });
  }
- async finishAuthorization(response){
-  if(!this.pending)return;
+ async finishAuthorization(response,pending=this.pending){
+  if(!pending||pending!==this.pending)return;
+  this.env.clearTimeout(pending.timer);
   try{
-   if(response.error||!response.access_token||!this.env.google.accounts.oauth2.hasGrantedAllScopes(response,DRIVE_SCOPE))throw Error('No se autorizó el acceso a los archivos de Guarda en Drive.');
+   if(response.error||!response.access_token||!this.env.google.accounts.oauth2.hasGrantedAllScopes(response,DRIVE_SCOPE))throw Error(response.error==='access_denied'?'Google no autorizó la conexión. Reintentá con la cuenta vinculada; si aparece Error 403 access_denied, esa cuenta debe estar habilitada en el proyecto de Google.':'No se autorizó el acceso a los archivos de Guarda en Drive.');
    this.token=response.access_token;this.expires=Date.now()+Math.max(0,Number(response.expires_in||0)-60)*1000;
    const data=await this.request('about?fields=user(permissionId,emailAddress,displayName),storageQuota');
+   if(pending!==this.pending)return;
    if(!data.user?.permissionId)throw Error('No se pudo identificar la cuenta de Drive.');
-   this.user=data.user;const pending=this.pending;this.pending=null;pending.resolve(data.user);
-  }catch(error){this.disconnect();this.rejectAuthorization(error);}
+   this.user=data.user;this.pending=null;pending.resolve(data.user);
+  }catch(error){if(pending!==this.pending)return;this.expire();this.rejectAuthorization(error,pending);}
  }
- disconnect(){this.token=null;this.expires=0;this.user=null;}
+ expire(){this.token=null;this.expires=0;}
+ disconnect(){this.expire();this.user=null;this.rejectAuthorization(Error('Conexión cancelada. Podés volver a conectar.'));}
  async request(path,{method='GET',body,headers={},raw=false}={}){
-  if(!this.token||Date.now()>=this.expires){this.disconnect();throw Error('La sesión de Drive venció. Tocá Conectar para renovarla; tus notas siguen guardadas localmente.');}
+  if(!this.token||Date.now()>=this.expires){this.expire();throw Error('La sesión de Drive venció. Tocá Conectar para renovarla; tus notas siguen guardadas localmente.');}
   const url=path.startsWith('https://')?path:API+path;
   if(!url.startsWith(API)&&!url.startsWith('https://www.googleapis.com/upload/drive/v3/'))throw Error('Dirección de Drive no válida.');
   const controller=new this.env.AbortController(),timer=this.env.setTimeout(()=>controller.abort(),120000);
   try{
    const response=await this.env.fetch(url,{method,headers:{...headers,Authorization:'Bearer '+this.token},body,signal:controller.signal,cache:'no-store'});
-   if(response.status===401){this.disconnect();throw Error('La sesión de Drive venció. Volvé a conectar tu cuenta.');}
+   if(response.status===401){this.expire();throw Error('La sesión de Drive venció. Volvé a conectar tu cuenta.');}
    if(!response.ok){let reason='';try{reason=(await response.json()).error?.errors?.[0]?.reason||'';}catch{}
     if(reason==='storageQuotaExceeded')throw Error('Tu cuenta de Drive no tiene espacio disponible. Tus cambios siguen guardados localmente.');
     if(response.status===403||response.status===429)throw Error('Drive rechazó la solicitud por permisos o límites de uso. Revisá la API y el permiso drive.file.');

@@ -20,7 +20,7 @@ Antes de abrir la app al público, revisar los requisitos de Branding/verificaci
 
 Cada persona toca Conectar Google Drive, elige **su propia cuenta** y acepta el permiso de los archivos de Guarda. Los datos consumen el almacenamiento de esa cuenta. Los límites de solicitudes de la API corresponden al proyecto de la aplicación. No se ha habilitado facturación desde la app.
 
-Los tokens de acceso solo viven en memoria. Al recargar o vencer la sesión puede ser necesario volver a tocar Conectar. Esto evita almacenar credenciales y funciona sin un backend para renovar sesiones. Desconectar deja las notas locales y los archivos remotos; el permiso también puede revocarse en la cuenta de Google. Se impide cambiar la cuenta vinculada a las notas locales para evitar mezclas: usar otro perfil/navegador para una segunda cuenta.
+Los tokens de acceso solo viven en memoria. Al recargar o vencer la sesión, Guarda conserva la indicación de cuenta vinculada y muestra el círculo de reconexión en el encabezado. Tocarlo abre Google Drive → Reconectar Google Drive, usando como sugerencia la cuenta anterior. La solicitud se inicia desde el toque explícito, como exige el modelo de tokens de Google. Esto evita almacenar credenciales y funciona sin un backend para renovar sesiones. Desconectar deja las notas locales y los archivos remotos; el permiso también puede revocarse en la cuenta de Google. Se impide cambiar la cuenta vinculada a las notas locales para evitar mezclas: usar otro perfil/navegador para una segunda cuenta.
 
 Sincroniza tras cambios guardados (con una breve espera), cada minuto con la app visible, al volver y al recuperar conexión, siempre que haya sesión válida y no se esté editando, grabando o reproduciendo. Sin sesión/internet sigue el guardado local. Incluye notas, listas, etiquetas, orden, papelera y archivos. Apariencia y demás preferencias son propias de cada dispositivo.
 
@@ -43,3 +43,5 @@ Las pruebas automatizadas simulan Drive/OAuth e IndexedDB y cubren sincronizaci�
 - https://developers.google.com/identity/oauth2/web/guides/use-token-model
 - https://developers.google.com/workspace/drive/api/guides/api-specific-auth
 - https://developers.google.com/workspace/drive/api/guides/limits
+
+Desde v0.6.1, una autorización sin respuesta vence a los 90 segundos y permite reintentar. Las respuestas tardías de intentos cancelados se ignoran. Si Google no carga, el botón permite reintentar la preparación y luego abrir la autorización desde un nuevo toque. Un `403 access_denied` de la pantalla de Google también requiere revisar Audience/usuarios de prueba del proyecto; la app no puede concederse ese permiso. Solo se recuerda información de vinculación, nunca tokens, y se excluye de las exportaciones.
