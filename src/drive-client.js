@@ -10,7 +10,7 @@ export class DriveClient{
    await this.loading;
   }
   this.oauthConfig={client_id:clientId,scope:DRIVE_SCOPE,include_granted_scopes:false};
-  this.oauth=this.env.google.accounts.oauth2.initTokenClient(this.oauthConfig);
+  this.oauth=this.env.google.accounts.oauth2.initTokenClient({...this.oauthConfig,callback:()=>{}});
  }
  rejectAuthorization(error,pending=this.pending){
   if(!pending||pending!==this.pending)return;

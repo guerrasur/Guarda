@@ -1,6 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {DriveClient,DRIVE_SCOPE} from '../src/drive-client.js';
 function setup(){let config,mode='success';const requests=[];let fetcher=async()=>new Response(JSON.stringify({user:{permissionId:'owner',emailAddress:'owner@example.test'}}),{status:200,headers:{'Content-Type':'application/json'}});
- const env={AbortController,setTimeout,clearTimeout,fetch:async(url,options)=>{requests.push({url,options});return fetcher(url,options);},google:{accounts:{oauth2:{hasGrantedAllScopes:r=>r.scope===DRIVE_SCOPE,initTokenClient:cfg=>{config=cfg;return {requestAccessToken:()=>queueMicrotask(()=>{if(mode==='closed')cfg.error_callback({type:'popup_closed'});else cfg.callback(mode==='denied'?{error:'access_denied'}:{access_token:'test-token',expires_in:3600,scope:DRIVE_SCOPE});})};}}}}};
+ const env={AbortController,setTimeout,clearTimeout,fetch:async(url,options)=>{requests.push({url,options});return fetcher(url,options);},google:{accounts:{oauth2:{hasGrantedAllScopes:r=>r.scope===DRIVE_SCOPE,initTokenClient:cfg=>{assert.equal(typeof cfg.callback,'function');config=cfg;return {requestAccessToken:()=>queueMicrotask(()=>{if(mode==='closed')cfg.error_callback({type:'popup_closed'});else cfg.callback(mode==='denied'?{error:'access_denied'}:{access_token:'test-token',expires_in:3600,scope:DRIVE_SCOPE});})};}}}}};
  const client=new DriveClient({env});return {client,requests,mode:value=>mode=value,fetch:fn=>fetcher=fn,config:()=>config};
 }
 const id='123456-publicclient.apps.googleusercontent.com';
@@ -15,7 +15,7 @@ test('expired and rejected tokens keep the account identity available for reconn
 });
 test('a timed out or cancelled authorization can be retried and late callbacks are ignored',async()=>{
  let config;const timers=new Map();let seq=0;
- const env={setTimeout:fn=>{timers.set(++seq,fn);return seq;},clearTimeout:id=>timers.delete(id),google:{accounts:{oauth2:{initTokenClient:cfg=>{config=cfg;return {requestAccessToken(){}};}}}}};
+ const env={setTimeout:fn=>{timers.set(++seq,fn);return seq;},clearTimeout:id=>timers.delete(id),google:{accounts:{oauth2:{initTokenClient:cfg=>{assert.equal(typeof cfg.callback,'function');config=cfg;return {requestAccessToken(){}};}}}}};
  const client=new DriveClient({env});await client.prepare(id);const first=client.connect();const old=config;const rejected=assert.rejects(first,/Google no respondió/);[...timers.values()][0]();await rejected;assert.equal(client.pending,null);
  const second=client.connect();const cancelled=assert.rejects(second,/cancelada/);await old.callback({access_token:'late'});assert.equal(client.token,null);assert.ok(client.pending);client.disconnect();await cancelled;assert.equal(timers.size,0);
 });
