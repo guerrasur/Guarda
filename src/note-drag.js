@@ -10,7 +10,7 @@ export function bindNoteDrag(area,{onMove,onTrash,onError=console.error,onBusyCh
  function trashHit(x,y){const r=bin.getBoundingClientRect();return !bin.hidden&&x>=r.left-16&&x<=r.right+16&&y>=r.top-16&&y<=r.bottom+16;}
  function markTrash(active){overTrash=active;bin.classList.toggle('drag-trash-active',active);ghost?.classList.toggle('drag-ghost-trash',active);}
  const cardOf=element=>{const card=element?.closest?.('[data-note]');return card&&area.contains(card)?card:null;};
- const interactive=element=>element?.closest?.('button,input,audio,video,a,label,[contenteditable=true]');
+ const interactive=element=>element?.closest?.('button,input,audio,video,a,label,[role=slider],[contenteditable=true]');
  const pointOf=event=>[...(event.touches||[]),...(event.changedTouches||[])].find(t=>t.identifier===gesture?.id);
  const cancelTimer=()=>{env.clearTimeout(timer);timer=null;};
  function clearTarget(){target?.classList.remove('drop-before','drop-after');target=null;}

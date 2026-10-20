@@ -77,3 +77,7 @@ test('duplicate snapshots from one device converge without blocking synchronizat
  const f=await fixture(t),a=await f.device(),b=await f.device();await a.store.putNote(note('same-device','Original'));await a.sync.sync();const [id,release]=[...f.files.entries()][0];f.files.set('duplicate-copy',structuredClone(release));
  await a.store.putNote(note('same-device','Edición posterior'));await a.sync.sync();await a.sync.sync();await b.sync.sync();assert.equal((await a.store.allNotes()).length,1);assert.equal((await b.store.allNotes())[0].body,'Edición posterior');assert.ok(f.files.has(id));assert.ok(f.files.has('duplicate-copy'));
 });
+test('audio waveform metadata survives Drive synchronization and backup restoration unchanged',async t=>{
+ const f=await fixture(t),a=await f.device(),b=await f.device(),c=await f.device();const n=note('wave');const waveform={version:1,duration:2,peaks:[0,.25,1,.4,0]};
+ await a.store.attachToNote(n,{id:'audio-wave',noteId:n.id,type:'audio/mpeg',name:'Voz',duration:2,waveform,blob:new Blob(['audio bytes'],{type:'audio/mpeg'})});await a.sync.sync();await b.sync.sync();assert.deepEqual((await b.store.getAttachment('audio-wave')).waveform,waveform);await c.store.importBackup(await b.store.exportBackup());assert.deepEqual((await c.store.getAttachment('audio-wave')).waveform,waveform);
+});

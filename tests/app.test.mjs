@@ -148,3 +148,15 @@ await test('opening and closing an unchanged saved note does not generate a writ
  await create('Lectura sin cambios','Texto estable');const n=(await store.allNotes()).find(n=>n.title==='Lectura sin cambios');const revision=await store.getSetting('local-revision',0);
  document.querySelector(`[data-note="${n.id}"]`).dispatchEvent(new window.Event('click',{bubbles:true}));await until(()=>!$('editor-layer').hidden);await $('editor-close').onclick();assert.equal(await store.getSetting('local-revision',0),revision);assert.equal((await store.allNotes()).find(x=>x.id===n.id).body,'Texto estable');
 });
+await test('new audio notes save MP3 and full waveform metadata and display it after reopening',async()=>{
+ const {encodeMonoMp3}=await import('../src/mp3-worker.js');const oldContext=globalThis.AudioContext,oldWorker=globalThis.Worker,oldRecorder=globalThis.MediaRecorder;
+ const samples=Float32Array.from({length:4410},(_,i)=>.5*Math.sin(i/10));const decoded={length:samples.length,sampleRate:44100,duration:.1,numberOfChannels:1,getChannelData:()=>samples};
+ globalThis.AudioContext=class{resume(){return Promise.resolve();}decodeAudioData(){return Promise.resolve(decoded);}close(){return Promise.resolve();}};
+ globalThis.Worker=class{postMessage({samples,sampleRate}){queueMicrotask(()=>this.onmessage({data:{blob:encodeMonoMp3(new Float32Array(samples),sampleRate)}}));}terminate(){}};
+ navigator.mediaDevices={getUserMedia:async()=>({getTracks:()=>[{stop(){}}]})};
+ globalThis.MediaRecorder=class{static isTypeSupported(type){return type==='audio/mp4';}constructor(){this.mimeType='audio/mp4';this.state='inactive';}start(){this.state='recording';}stop(){this.state='inactive';queueMicrotask(()=>{this.ondataavailable({data:new Blob(['native AAC bytes'],{type:'audio/mp4'})});this.onstop();});}};
+ try{
+  await $('new-note').onclick();input($('note-title'),'MP3 con onda');await $('editor-mic').onclick();await $('record-stop').onclick();const n=(await store.allNotes()).find(n=>n.title==='MP3 con onda');assert.ok(n);const audio=await store.getAttachment(n.attachments[0]);assert.equal(audio.type,'audio/mpeg');assert.equal(audio.blob.type,'audio/mpeg');assert.equal(audio.waveform.peaks.length,160);assert.ok($('editor-audios').querySelector('.wave-base'));assert.ok($('record-waveform').querySelector('path'));
+  await $('editor-close').onclick();document.querySelector(`[data-note="${n.id}"]`).dispatchEvent(new window.Event('click',{bubbles:true}));await until(()=>!!$('editor-audios').querySelector('.wave-progress'));assert.equal($('editor-audios').querySelector('[data-waveform]').dataset.ready,'true');await $('editor-close').onclick();
+ }finally{if(oldContext===undefined)delete globalThis.AudioContext;else globalThis.AudioContext=oldContext;if(oldWorker===undefined)delete globalThis.Worker;else globalThis.Worker=oldWorker;globalThis.MediaRecorder=oldRecorder;}
+});

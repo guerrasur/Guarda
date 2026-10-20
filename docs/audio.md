@@ -1,0 +1,9 @@
+# Grabaciones, MP3 y forma de onda
+
+Durante la grabación se muestra un medidor SVG que lee muestras reales del micrófono con Web Audio. La visualización se congela al pausar; al detener, cancelar o fallar, se desconecta el analizador, se cierra AudioContext y se detiene la animación. El analizador nunca se conecta a los parlantes. La envolvente se mantiene acotada en memoria para grabaciones largas.
+
+La captura sigue usando MediaRecorder y sus fragmentos persistentes para recuperar audio ante cierres imprevistos. Se prefiere MPEG nativo si el navegador lo ofrece. En Safari y otros navegadores se decodifica el audio original y se convierte localmente a MP3 mono de 96 kb/s en un Worker con @breezystack/lamejs 1.2.7. El codificador está separado, sin modificaciones, y se incluye en el modo sin conexión junto con su licencia y atribución. No se envía audio a un servicio de conversión. Si falla la conversión, se conserva y guarda el audio original y se muestra un aviso.
+
+Se guarda una forma de onda compacta de 160 picos y la duración junto al adjunto. Proviene del audio completo decodificado; si ese análisis falla, puede utilizar la envolvente capturada en vivo. Las notas, las copias de seguridad y Drive conservan estos metadatos. Los audios anteriores o importados se analizan localmente al reproducirlos, sin modificar el archivo original. Si el navegador no puede decodificar un formato, el reproductor sigue disponible y se indica que su onda no pudo prepararse.
+
+La onda muestra la grabación completa y colorea el tramo reproducido. Permite buscar una posición con un toque o mediante flechas, Inicio y Fin. Los controles nativos de audio se conservan. Al reproducir un audio, se pausa cualquier otro audio de Guarda que siga sonando.

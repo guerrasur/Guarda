@@ -57,3 +57,9 @@ test('permission denial is reported in Spanish and can be retried', async () => 
   await assert.rejects(recorder.start(), /No se permitió usar el micrófono/);
   assert.equal(recorder.state, 'idle');
 });
+test('stream visualization hooks receive the microphone once and release it on stop without affecting the recording',async()=>{
+ const streams=[];const recorder=new AudioRecorder({onStream:stream=>streams.push(stream)});await recorder.start();assert.ok(streams[0]);await recorder.stop();assert.equal(streams.at(-1),null);assert.equal(tracks[0].stopped,true);
+});
+test('recording prefers genuine native MPEG when the browser advertises support',async()=>{
+ FakeMediaRecorder.isTypeSupported=type=>['audio/mpeg','audio/mp4'].includes(type);try{const recorder=new AudioRecorder();await recorder.start();assert.equal(FakeMediaRecorder.last.mimeType,'audio/mpeg');const result=await recorder.stop();assert.equal(result.mimeType,'audio/mpeg');}finally{FakeMediaRecorder.isTypeSupported=type=>type==='audio/mp4';}
+});

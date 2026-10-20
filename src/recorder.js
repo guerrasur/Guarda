@@ -11,14 +11,14 @@ export function microphoneError(error) {
 }
 
 export class AudioRecorder {
-  constructor({ onChunk, onState, onError } = {}) {
-    this.onChunk = onChunk; this.onState = onState; this.onError = onError;
+  constructor({ onChunk, onState, onError, onStream } = {}) {
+    this.onStream = onStream; this.onChunk = onChunk; this.onState = onState; this.onError = onError;
     this._state = 'idle'; this._token = 0; this._chunks = []; this._pending = Promise.resolve();
   }
   get state() { return this._state; }
   _setState(state) { this._state = state; this.onState?.(state); }
   _duration() { return this._elapsed + (this._state === 'recording' ? performance.now() - this._startedAt : 0); }
-  _release() { this._stream?.getTracks().forEach(track => track.stop()); this._stream = null; }
+  _release() { this._stream?.getTracks().forEach(track => track.stop()); this._stream = null; try { this.onStream?.(null); } catch {} }
   async start() {
     if (this.state !== 'idle') throw new Error('Ya hay una grabación en curso.');
     if (!globalThis.navigator?.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
@@ -31,7 +31,7 @@ export class AudioRecorder {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       if (token !== this._token) { stream.getTracks().forEach(track => track.stop()); return; }
       this._stream = stream;
-      const preferred = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'];
+      const preferred = ['audio/mpeg', 'audio/mp4', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'];
       const mimeType = preferred.find(type => MediaRecorder.isTypeSupported?.(type));
       this._recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       this._chunks = []; this._pending = Promise.resolve(); this._chunkError = null;
@@ -68,6 +68,7 @@ export class AudioRecorder {
         this._setState('idle');
       };
       this._recorder.start(1000);
+      try { this.onStream?.(stream); } catch {}
       this._setState('recording');
     } catch (cause) {
       if (token !== this._token) return;
