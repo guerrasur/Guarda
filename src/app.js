@@ -82,7 +82,7 @@ async function renderBoard(){
  const list=filteredNotes();const pinned=list.filter(n=>n.pinned),other=list.filter(n=>!n.pinned);
  const group=(items,label)=>`${label?`<h2 class="notes-section-title">${label}</h2>`:''}<div class="notes-grid">${items.map(cardHTML).join('')}</div>`;
  area.innerHTML=pinned.length&&!['trash','archive'].includes(route)?group(pinned,'Fijadas')+group(other,other.length?'Otras':''):group(list,'');
- $('empty-state').hidden=list.length>0;$('empty-icon').innerHTML=route==='notes'&&!search?'<img src="./guardia-icon.png" alt="">':icon(search?'search':route==='trash'?'trash':route==='archive'?'archive':route==='reminders'?'bell':'label');
+ $('empty-state').hidden=list.length>0;$('empty-icon').innerHTML=route==='notes'&&!search?'<img src="./guardia-icon.svg" alt="">':icon(search?'search':route==='trash'?'trash':route==='archive'?'archive':route==='reminders'?'bell':'label');
  $('empty-message').textContent=search?'No se encontraron notas.':route==='trash'?'No hay notas en la papelera.':route==='archive'?'Tus notas archivadas aparecerán aquí.':route==='reminders'?'Las notas con recordatorio aparecerán aquí.':route.startsWith('label:')?'No hay notas con esta etiqueta.':'Las notas que agregues aparecerán aquí';
  $('empty-create').hidden=['trash','archive'].includes(route)||!!search;
  $('composer').hidden=['archive','trash'].includes(route);$('page-heading').hidden=route==='notes'&&!search;
