@@ -4,15 +4,17 @@ import { GOOGLE_CLIENT_ID } from './drive-config.js';
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function initDrive({store,isBusy,onApplied,utility,closeUtility,showError,env=globalThis}){
  const $=id=>env.document.getElementById(id);let clientId=GOOGLE_CLIENT_ID,timer=null,message='Drive sin conectar';
+ const indicator=(state,text)=>{const el=$('drive-indicator');if(!el)return;el.hidden=state==='hidden';el.dataset.state=state;el.title=text;el.setAttribute('aria-label',text);el.textContent=state==='synced'?'✓':state==='error'?'!':'';};
  const status=text=>{message=text;for(const id of ['drive-status','drive-panel-status'])if($(id))$(id).textContent=text;};
  const client=new DriveClient({env});
  const sync=new DriveSync({store,client,isBusy,onApplied,env,onStatus:status});
  async function attempt(manual=false){
-  if(!client.connected){if(client.user)status('La sesión de Drive venció. Volvé a conectar.');return;}
+  if(!client.connected){if(client.user){status('La sesión de Drive venció. Volvé a conectar.');indicator('error',message);}return;}
   if(isBusy()){if(manual)throw Error('Cerrá la nota o terminá la operación antes de sincronizar.');return;}
-  try{return await sync.sync();}catch(error){status(error.message);if(manual)throw error;}
+  indicator('syncing','Sincronizando con Google Drive…');
+  try{const result=await sync.sync();indicator('synced','Todo guardado en Google Drive');return result;}catch(error){status(error.message);indicator('error',error.message);if(manual)throw error;}
  }
- const schedule=()=>{env.clearTimeout(timer);timer=env.setTimeout(()=>attempt(),1500);};
+ const schedule=()=>{if(client.connected)indicator('pending','Cambios pendientes de guardar en Google Drive');env.clearTimeout(timer);timer=env.setTimeout(()=>attempt(),1500);};
  store.addEventListener('change',event=>{if(event.detail.type!=='cloud-apply'&&!event.detail.id?.startsWith('drive-'))schedule();});
  env.setInterval(()=>{if(!env.document.hidden)attempt();},60000);
  env.window.addEventListener('online',()=>attempt());env.document.addEventListener('visibilitychange',()=>{if(!env.document.hidden)attempt();});
@@ -31,7 +33,7 @@ export function initDrive({store,isBusy,onApplied,utility,closeUtility,showError
    }).catch(error=>{status(error.message);showError(error);}).finally(()=>{if(connect.isConnected)connect.disabled=false;});
   };
   $('drive-sync-now').onclick=()=>{closeUtility();attempt(true).catch(showError);};
-  $('drive-disconnect').onclick=()=>{client.disconnect();env.clearTimeout(timer);status('Drive desconectado. Se conserva el guardado local.');closeUtility();};
+  $('drive-disconnect').onclick=()=>{client.disconnect();env.clearTimeout(timer);indicator('hidden','');status('Drive desconectado. Se conserva el guardado local.');closeUtility();};
   if(clientId)prepare().catch(error=>status(error.message));else status('Falta configurar el ID de cliente de Google para habilitar la conexión.');
  }
  return {open,sync:()=>attempt(true),isWorking:()=>!!sync.running||!!client.pending};
