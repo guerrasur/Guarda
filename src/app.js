@@ -52,7 +52,7 @@ function showError(error){console.error(error);toast(error?.message||'No se pudo
 function status(message,error=false){$('save-status').textContent=message;$('save-status').classList.toggle('save-error',error);$('editor-mobile-status').textContent=message;}
 function contentSignature(note){return JSON.stringify([note.title,note.body,note.richBody||'',note.isList,note.items,note.attachments]);}
 function localSnapshot(note){const snapshot=clone(note);const saved=notes.find(n=>n.id===note.id);const changed=!saved||contentSignature(saved)!==contentSignature(note);if(changed){snapshot.updatedAt=now();if(settings.updatedFirst!==false)snapshot.order=nextOrder();}return snapshot;}
-async function refresh(){if(attachmentsInvalidated){clearAttachments();attachmentsInvalidated=false;}[notes,labels]=await Promise.all([store.allNotes(),store.allLabels()]);const used=new Set([...notes.flatMap(n=>n.attachments),...(editing?.attachments||[])]);for(const id of attachmentCache.keys())if(!used.has(id))dropURL(id);renderNav();await renderBoard();}
+async function refresh(){if(attachmentsInvalidated&&(!editing||closeTask)){clearAttachments();attachmentsInvalidated=false;}[notes,labels]=await Promise.all([store.allNotes(),store.allLabels()]);const used=new Set([...notes.flatMap(n=>n.attachments),...(editing?.attachments||[])]);for(const id of attachmentCache.keys())if(!used.has(id))dropURL(id);renderNav();await renderBoard();}
 function scheduleSave(){drive?.markPending();status('Guardando…');clearTimeout(saveTimer);saveTimer=setTimeout(()=>saveDraft().catch(showError),240);}
 async function saveDraft(){
  clearTimeout(saveTimer);if(!editing)return;const id=editing.id;

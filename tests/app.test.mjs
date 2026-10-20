@@ -212,5 +212,7 @@ await test('remote attachment replacement invalidates cached previews including 
  const card=document.querySelector(`[data-note="${n.id}"]`);card.dispatchEvent(new window.Event('click',{bubbles:true}));await until(()=>$('editor-files').textContent.includes('Original.pdf'));
  await store.putAttachment({...attachment,name:'Actualizado.pdf',blob:new Blob(['actualizado'])});channels[0].onmessage({data:{type:'attachment',id:attachment.id,noteId:n.id}});
  assert.match($('editor-files').textContent,/Original.pdf/,'the active editor is left stable until close');
+ const originalRead=GuardaStore.prototype.getAttachment;let reads=0;GuardaStore.prototype.getAttachment=function(id){if(id===attachment.id)reads++;return originalRead.call(this,id);};
+ try{await $('editor-pin').onclick();assert.equal(reads,0,'pinning must not invalidate active media before the editor closes');}finally{GuardaStore.prototype.getAttachment=originalRead;}
  await $('editor-close').onclick();assert.match(document.querySelector(`[data-note="${n.id}"]`).textContent,/Actualizado.pdf/);
 });

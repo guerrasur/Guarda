@@ -2,6 +2,9 @@
 
 App web instalable de notas, listas y grabaciones de audio, inspirada en Google Keep. Identidad propia con el guardia medieval aprobado.
 
+v0.6.14: los cambios de adjuntos recibidos desde otra pestaña esperan al cierre
+del editor, conservando los archivos activos al fijar o recolorear una nota.
+
 v0.6.13: tarjetas estables al editar o reordenar, adjuntos cargados por sección,
 cursor conservado en listas, acciones múltiples reversibles y guardadas en una
 sola transacción, y caché de adjuntos actualizada entre pestañas.
