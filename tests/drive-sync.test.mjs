@@ -32,7 +32,7 @@ test('permanent deletion propagates without resurrecting notes from stale device
 test('new local edits during network activity are never overwritten by downloaded data',async t=>{
  const f=await fixture(t),a=await f.device();await a.store.putNote(note('race','Antes'));const upload=a.client.writeSnapshot;
  a.client.writeSnapshot=async(...args)=>{const id=await upload(...args);await a.store.putNote(note('race','Texto que escribí durante la subida'));return id;};
- await assert.rejects(a.sync.sync(),/cambiaron durante/);assert.equal((await a.store.allNotes())[0].body,'Texto que escribí durante la subida');a.client.writeSnapshot=upload;await a.sync.sync();assert.ok((await a.store.allNotes()).some(n=>n.body==='Texto que escribí durante la subida'));
+ await assert.rejects(a.sync.sync(),error=>error.cause?.code==='SYNC_LOCAL_CHANGED');assert.equal((await a.store.allNotes())[0].body,'Texto que escribí durante la subida');a.client.writeSnapshot=upload;await a.sync.sync();assert.ok((await a.store.allNotes()).some(n=>n.body==='Texto que escribí durante la subida'));
 });
 test('offline failures preserve local data and retry successfully; a different account is blocked before upload',async t=>{
  const f=await fixture(t),a=await f.device();await a.store.putNote(note('safe'));const upload=a.client.writeSnapshot;a.client.writeSnapshot=async()=>{throw Error('Offline');};await assert.rejects(a.sync.sync(),/Offline/);assert.equal((await a.store.allNotes()).length,1);a.client.writeSnapshot=upload;await a.sync.sync();const count=f.uploads;a.client.user={permissionId:'other-account'};await assert.rejects(a.sync.sync(),/otra cuenta/);assert.equal(f.uploads,count);assert.equal((await a.store.allNotes()).length,1);
@@ -53,4 +53,11 @@ test('conflicting notes retain both original audio files and consistent attachme
  for(const [d,id,bytes] of [[a,'audio-a','voice A'],[b,'audio-b','voice B']]){const n=(await d.store.allNotes())[0];n.body=bytes;await d.store.attachToNote(n,{id,noteId:n.id,type:'audio/mp4',name:id,blob:new Blob([bytes],{type:'audio/mp4'})});}
  await a.sync.sync();await b.sync.sync();await a.sync.sync();
  const notes=await a.store.allNotes();assert.equal(notes.length,2);const sounds=[];for(const n of notes){assert.equal(n.attachments.length,1);const audio=await a.store.getAttachment(n.attachments[0]);assert.equal(audio.noteId,n.id);sounds.push(await audio.blob.text());}assert.deepEqual(sounds.sort(),['voice A','voice B']);
+});
+
+test('opening an editor while downloading defers safely and resumes without another authorization',async t=>{
+ const f=await fixture(t),a=await f.device(),b=await f.device();await a.store.putNote(note('remote'));await a.sync.sync();await b.store.putNote(note('local'));
+ let busy=false;const read=b.client.readSnapshot;b.sync.isBusy=()=>busy;b.client.readSnapshot=async id=>{const data=await read(id);busy=true;return data;};
+ await assert.rejects(b.sync.sync(),error=>error.code==='SYNC_DEFERRED');assert.equal(b.client.connected,true);assert.deepEqual((await b.store.allNotes()).map(n=>n.id),['local']);
+ b.client.readSnapshot=read;busy=false;await b.sync.sync();assert.deepEqual(new Set((await b.store.allNotes()).map(n=>n.id)),new Set(['local','remote']));
 });

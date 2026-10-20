@@ -103,3 +103,19 @@ await test('Keep import guide previews a local Takeout ZIP before adding notes a
  await choose();assert.match($('keep-import-status').textContent,/1 notas para importar/);assert.equal((await store.allNotes()).length,count,'preview must not modify local notes');assert.equal($('keep-confirm').disabled,false);await $('keep-confirm').onclick();assert.equal((await store.allNotes()).length,count+1);assert.equal((await store.allNotes()).find(n=>n.title===source.title).body,source.textContent);assert.equal($('utility-dialog').open,false);
  await choose();assert.match($('keep-import-status').textContent,/0 notas para importar.*1 notas idénticas/);assert.equal($('keep-confirm').disabled,true);$('utility-dialog').close();
 });
+await test('opening text notes and checklists focuses the dialog instead of an editable field',async()=>{
+ const original=window.HTMLElement.prototype.focus;const focused=[];
+ window.HTMLElement.prototype.focus=function(){focused.push(this);};
+ try{
+  for(const isList of [false,true]){
+   if(isList){await $('new-list').onclick();input($('note-title'),'Keyboard list');await $('editor-close').onclick();}else await create('Keyboard text');
+   const note=(await store.allNotes()).find(n=>n.title===(isList?'Keyboard list':'Keyboard text'));assert.ok(note);
+   document.querySelector(`[data-route="notes"]`).dispatchEvent(new window.Event('click',{bubbles:true}));await until(()=>document.querySelector(`[data-note="${note.id}"]`));
+   focused.length=0;document.querySelector(`[data-note="${note.id}"]`).dispatchEvent(new window.Event('click',{bubbles:true}));await until(()=>focused.includes($('editor')));
+   assert.equal(focused.some(e=>e.matches('input,textarea,[contenteditable=true]')),false);assert.equal($('editor-body').getAttribute('contenteditable'),'true');await $('editor-close').onclick();
+  }
+ }finally{window.HTMLElement.prototype.focus=original;}
+});
+await test('app information is available at the bottom of the menu with author, contact and live version',()=>{
+ $('app-info').onclick();assert.equal($('utility-dialog').open,true);assert.match($('utility-content').textContent,/Lucio Guerra/);assert.match($('utility-content').textContent,/en desarrollo/);assert.equal($('utility-content').querySelector('a').getAttribute('href'),'mailto:lucioguerrasur@gmail.com');assert.equal($('sidebar').querySelector('.sidebar-bottom').lastElementChild.id,'app-info');$('utility-dialog').close();
+});

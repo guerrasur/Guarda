@@ -8,12 +8,14 @@ export function initDrive({store,isBusy,onApplied,utility,closeUtility,showError
  const status=text=>{message=text;for(const id of ['drive-status','drive-panel-status'])if($(id))$(id).textContent=text;};
  const client=new DriveClient({env});
  const sync=new DriveSync({store,client,isBusy,onApplied,env,onStatus:status});
+ const queueRetry=()=>{env.clearTimeout(timer);timer=env.setTimeout(()=>attempt(),1500);};
+ const defer=()=>{status('Google Drive conectado. Guardado pendiente; se reintentará al terminar la operación actual.');indicator('pending',message);queueRetry();return {deferred:true};};
  async function attempt(manual=false){
   if(!client.connected){if(enabled||client.user){status('Reconectá Google Drive para continuar el guardado en la nube. Tus notas están guardadas en este dispositivo.');indicator('error',message);}if(manual)throw Error(message);return;}
-  if(isBusy()){if(manual)throw Error('Cerrá la nota o terminá la operación antes de sincronizar.');return;}
+  if(isBusy())return defer();
   indicator('syncing','Sincronizando con Google Drive…');
   const started=changeVersion;
-  try{const result=await sync.sync();if(started===changeVersion)indicator('synced','Todo guardado en Google Drive');else indicator('pending','Cambios pendientes de guardar en Google Drive');return result;}catch(error){status(error.message);indicator('error',error.message);if(manual)throw error;}
+  try{const result=await sync.sync();if(started===changeVersion)indicator('synced','Todo guardado en Google Drive');else {indicator('pending','Cambios pendientes de guardar en Google Drive');queueRetry();}return result;}catch(error){if(['SYNC_DEFERRED','SYNC_LOCAL_CHANGED'].includes(error.code||error.cause?.code))return defer();status(error.message);indicator('error',error.message);if(manual)throw error;}
  }
  const schedule=()=>{changeVersion++;if(client.connected)indicator('pending','Cambios pendientes de guardar en Google Drive');env.clearTimeout(timer);timer=env.setTimeout(()=>attempt(),1500);};
  store.addEventListener('change',event=>{if(event.detail.type!=='cloud-apply'&&!event.detail.id?.startsWith('drive-'))schedule();});
@@ -25,7 +27,7 @@ export function initDrive({store,isBusy,onApplied,utility,closeUtility,showError
   utility('Google Drive',`<p>Cada persona guarda sus notas y audios en su propia cuenta de Drive. Los cambios sin conexión se conservan en este dispositivo.</p><p id="drive-panel-status" class="small" role="status">${escape(message)}</p>${client.user||remembered?`<p>${escape((client.user||remembered).emailAddress||(client.user||remembered).displayName||'Cuenta vinculada')}</p>`:''}<button class="settings-action" id="drive-connect" ${sync.running?'disabled':''}>${connected?'Renovar conexión con Google':enabled?'Reconectar Google Drive':'Conectar Google Drive'}</button><button class="settings-action" id="drive-sync-now" ${!connected||sync.running?'disabled':''}>Sincronizar ahora</button><button class="settings-action" id="drive-disconnect" ${(!client.user&&!enabled)||sync.running?'disabled':''}>Desconectar este dispositivo</button><p class="small">El permiso permite acceder a los archivos creados por Guarda. Al vencer la sesión, Google puede pedir que vuelvas a conectar. Desconectar conserva tus notas locales y tus archivos en Drive.</p><p class="small"><a href="./privacidad.html" target="_blank" rel="noopener">Privacidad y uso de los datos</a></p><details ${!clientId?'open':''}><summary>Configurar conexión de la app</summary><p class="small">La primera configuración requiere un ID de cliente OAuth web. Es público; no ingreses una contraseña ni un secreto.</p><label for="drive-client-id">ID de cliente de Google</label><input id="drive-client-id" class="popover-input" placeholder="123…apps.googleusercontent.com" value="${escape(clientId)}" autocomplete="off" spellcheck="false"><button class="settings-action" id="drive-save-client">Guardar configuración</button><p class="small">Origen autorizado: https://guerrasur.github.io</p></details>`,[{label:'Listo',run:closeUtility}]);
   const connect=$('drive-connect');connect.disabled=true;
   let prepared=false;
-  const prepare=async()=>{prepared=false;connect.disabled=true;try{await client.prepare(clientId);prepared=true;}finally{if(connect.isConnected){connect.disabled=!!sync.running;connect.textContent=prepared?(enabled?'Reconectar Google Drive':'Conectar Google Drive'):'Reintentar conexión con Google';}}};
+  const prepare=async()=>{prepared=false;connect.disabled=true;try{await client.prepare(clientId);prepared=true;}finally{if(connect.isConnected){connect.disabled=!!sync.running;connect.textContent=prepared?(client.connected?'Renovar conexión con Google':enabled?'Reconectar Google Drive':'Conectar Google Drive'):'Reintentar conexión con Google';}}};
   $('drive-save-client').onclick=async()=>{try{clientId=$('drive-client-id').value.trim();await prepare();await store.setSetting('drive-client-id',clientId);status('Configuración lista. Tocá Conectar Google Drive.');}catch(error){status(error.message);}};
   connect.onclick=()=>{
    if(!prepared){prepare().then(()=>status('Conexión lista. Tocá Conectar Google Drive.')).catch(error=>{status(error.message);showError(error);});return;}
@@ -41,5 +43,5 @@ export function initDrive({store,isBusy,onApplied,utility,closeUtility,showError
   if(clientId)prepare().catch(error=>status(error.message));else status('Falta configurar el ID de cliente de Google para habilitar la conexión.');
  }
  const ready=(async()=>{const saved=await store.getSetting('drive-connection',null);const bound=await store.getSetting('drive-bound-account',null);if(saved?.enabled||(!saved&&bound)){enabled=true;remembered=saved?.user||null;await attempt();}})().catch(showError);
- return {open,markPending:schedule,getState:()=>({connected:client.connected,enabled,user:client.user||remembered,state:currentState,message}),sync:()=>attempt(true),isWorking:()=>!!sync.running||!!client.pending};
+ return {open,markPending:schedule,resume:()=>{if(client.connected&&currentState==='pending')queueRetry();},getState:()=>({connected:client.connected,enabled,user:client.user||remembered,state:currentState,message}),sync:()=>attempt(true),isWorking:()=>!!sync.running||!!client.pending};
 }

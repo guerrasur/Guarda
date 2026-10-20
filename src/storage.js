@@ -210,7 +210,7 @@ export class GuardaStore extends EventTarget {
     // Decode and validate before opening the single replacement transaction.
     const records=await this.validateBackup(data);
     return this._run(STORES, 'readwrite', async tx => {
-      if(expectedRevision!==undefined){const actual=(await requestResult(tx.objectStore('settings').get('local-revision')))?.value||0;if(actual!==expectedRevision)throw new Error('Las notas cambiaron durante la sincronización. Se reintentará sin reemplazar tus cambios.');}
+      if(expectedRevision!==undefined){const actual=(await requestResult(tx.objectStore('settings').get('local-revision')))?.value||0;if(actual!==expectedRevision)throw Object.assign(new Error('Las notas cambiaron durante la sincronización. Se reintentará sin reemplazar tus cambios.'),{code:'SYNC_LOCAL_CHANGED'});}
       for (const name of STORES) {if(expectedRevision!==undefined&&(name==='settings'||!contentChanged))continue;const store = tx.objectStore(name); store.clear(); for (const record of records[name]) {if(name==='settings'&&(record.id.startsWith('drive-')||record.id==='local-revision'))continue;store.put(record);} }
       if(expectedRevision!==undefined){assert(typeof accountId==='string'&&accountId&&syncState,'Falta la cuenta de sincronización.');tx.objectStore('settings').put({id:'drive-state:'+accountId,value:syncState});}
     }, { type: expectedRevision===undefined?'import':'cloud-apply', ...(expectedRevision===undefined?{}:{contentChanged}) });

@@ -1,0 +1,4 @@
+import { APP_VERSION } from './version.js';
+export function openAppInfo({utility,closeUtility}){
+ utility('Información de la app',`<p><b>Guarda</b> es una app de notas, listas, imágenes y grabaciones de audio, creada por Lucio Guerra para tener a mano ideas, pendientes y lo que quieras conservar.</p><p>Podés usarla sin conexión. Tus notas se guardan en este dispositivo y, si conectás Google Drive, se sincronizan con tu cuenta para acceder desde otros dispositivos. Desde Configuración también podés exportar una copia de seguridad.</p><p>Guarda está en desarrollo y sigue incorporando mejoras.</p><p>Si tenés alguna duda, encontrás un error o querés proponer una idea, podés escribirme a <a href="mailto:lucioguerrasur@gmail.com">lucioguerrasur@gmail.com</a>.</p><p class="small">Versión ${APP_VERSION}</p>`,[{label:'Listo',run:closeUtility}]);
+}
