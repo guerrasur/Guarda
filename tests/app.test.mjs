@@ -148,6 +148,23 @@ await test('opening and closing an unchanged saved note does not generate a writ
  await create('Lectura sin cambios','Texto estable');const n=(await store.allNotes()).find(n=>n.title==='Lectura sin cambios');const revision=await store.getSetting('local-revision',0);
  document.querySelector(`[data-note="${n.id}"]`).dispatchEvent(new window.Event('click',{bubbles:true}));await until(()=>!$('editor-layer').hidden);await $('editor-close').onclick();assert.equal(await store.getSetting('local-revision',0),revision);assert.equal((await store.allNotes()).find(x=>x.id===n.id).body,'Texto estable');
 });
+
+await test('editor isolates the board and returns focus to the current card after rebuilding it',async()=>{
+ await create('Regreso al tablero','Sin perder el foco');const n=(await store.allNotes()).find(n=>n.title==='Regreso al tablero');
+ document.querySelector(`[data-note="${n.id}"]`).dispatchEvent(new window.Event('click',{bubbles:true}));await until(()=>!$('editor-layer').hidden);
+ assert.equal($('main').inert,true);assert.equal(document.querySelector('.header').inert,true);
+ const oldFocus=window.HTMLElement.prototype.focus;let focused;
+ window.HTMLElement.prototype.focus=function(){focused=this;};
+ try{await $('editor-close').onclick();assert.equal($('main').inert,false);assert.equal(document.querySelector('.header').inert,false);assert.equal(focused,document.querySelector(`[data-note="${n.id}"]`));assert.equal($('editor-layer').inert,false);}finally{window.HTMLElement.prototype.focus=oldFocus;}
+});
+
+await test('a failed close restores editor interaction and preserves the unsaved text for retry',async()=>{
+ await $('new-note').onclick();input($('note-title'),'Reintentar cierre');
+ const original=GuardaStore.prototype.putNote,log=console.error;console.error=()=>{};
+ GuardaStore.prototype.putNote=async()=>{throw Error('No se pudo guardar');};
+ try{assert.equal(await $('editor-close').onclick(),false);assert.equal($('editor-layer').hidden,false);assert.equal($('editor-layer').inert,false);assert.equal($('main').inert,true);assert.equal($('note-title').value,'Reintentar cierre');}finally{GuardaStore.prototype.putNote=original;console.error=log;}
+ assert.equal(await $('editor-close').onclick(),true);assert.ok((await store.allNotes()).find(n=>n.title==='Reintentar cierre'));
+});
 await test('new audio notes save MP3 and full waveform metadata and defer waveform rendering until playback',async()=>{
  const {encodeMonoMp3}=await import('../src/mp3-worker.js');const oldContext=globalThis.AudioContext,oldWorker=globalThis.Worker,oldRecorder=globalThis.MediaRecorder;
  const samples=Float32Array.from({length:4410},(_,i)=>.5*Math.sin(i/10));const decoded={length:samples.length,sampleRate:44100,duration:.1,numberOfChannels:1,getChannelData:()=>samples};

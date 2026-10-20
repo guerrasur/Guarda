@@ -2,6 +2,10 @@
 
 App web instalable de notas, listas y grabaciones de audio, inspirada en Google Keep. Identidad propia con el guardia medieval aprobado.
 
+v0.6.11: UI refinada, transiciones breves del editor y tablero, menús y botones
+coherentes, foco conservado y soporte de movimiento reducido.
+[Cambios visuales y validación](docs/ui-motion.md).
+
 ## Uso
 
 Abrir la publicación de GitHub Pages del repositorio. En iPhone: Safari → Compartir → Agregar a inicio. En Chrome/Edge: menú → Instalar Guarda.
