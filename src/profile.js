@@ -1,6 +1,8 @@
 const plants=[['clover','Trébol'],['fern','Helecho'],['thistle','Cardo']];
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function driveDescription(info){
+ if(info?.state==='offline')return 'Sin conexión a internet. Tus cambios están guardados en este dispositivo y se enviarán cuando vuelva la conexión.';
+ if(info?.state==='connecting')return 'Esperando autorización de Google…';
  if(info?.connected)return info.state==='synced'?'Todo guardado en Google Drive. También tenés una copia local para usar sin conexión.':info.state==='error'?'No se pudo completar el guardado en Drive. Tus cambios se conservan en este dispositivo.':'Google Drive conectado. Hay cambios por sincronizar; se conservan en este dispositivo hasta completar el guardado.';
  if(info?.enabled)return 'Tu cuenta de Drive está vinculada. Reconectala para continuar la sincronización. Tus notas se conservan en este dispositivo.';
  return 'Tus notas se guardan en este dispositivo. Podés conectar Google Drive para sincronizarlas y exportar una copia desde Configuración.';
@@ -17,12 +19,18 @@ export function initProfile({store,drive,utility,closeUtility,showError,env=glob
   selected=plants.some(([id])=>id===value)?value:'clover';
   $('profile-image').src=`./avatars/${selected}.png`;
  }
+ function updateStatus(){
+  const info=drive.getState();const status=$('profile-sync-status');if(status)status.textContent=driveDescription(info);
+  const action=$('profile-sync');if(action){action.textContent=info.connected?'Sincronizar ahora':info.enabled?'Reconectar Google Drive':'Conectar Google Drive';action.disabled=!!info.working||!!info.preparing;}
+ }
+ drive.subscribe?.(updateStatus);
  async function open(){
-  await render();const info=drive.getState();
-  utility('Tu perfil',`<p>Elegí tu foto de perfil</p><div class="profile-choices">${plants.map(([id,name])=>`<button class="profile-choice" data-avatar="${id}" aria-label="${name}" aria-pressed="${selected===id}"><img src="./avatars/${id}.png" alt=""><span>${name}</span></button>`).join('')}</div><p>${escape(driveDescription(info))}</p>${info.user?.emailAddress?`<p class="small">${escape(info.user.emailAddress)}</p>`:''}<button class="settings-action" id="profile-drive">${info.connected?'Administrar Google Drive':info.enabled?'Reconectar Google Drive':'Conectar Google Drive'}</button>`,[{label:'Listo',run:closeUtility}]);
+  await render();const info=drive.getState();if(!info.connected)drive.prepare?.().catch(()=>{});
+  utility('Tu perfil',`<p>Elegí tu foto de perfil</p><div class="profile-choices">${plants.map(([id,name])=>`<button class="profile-choice" data-avatar="${id}" aria-label="${name}" aria-pressed="${selected===id}"><img src="./avatars/${id}.png" alt=""><span>${name}</span></button>`).join('')}</div><p id="profile-sync-status" role="status">${escape(driveDescription(info))}</p>${info.user?.emailAddress?`<p class="small">${escape(info.user.emailAddress)}</p>`:''}<button class="settings-action" id="profile-sync"></button><button class="settings-action" id="profile-drive">Administrar Google Drive</button>`,[{label:'Listo',run:closeUtility}]);
   for(const button of env.document.querySelectorAll('[data-avatar]'))button.onclick=async()=>{
    try{await store.setSetting('profile-avatar',button.dataset.avatar);await render();for(const option of env.document.querySelectorAll('[data-avatar]'))option.setAttribute('aria-pressed',String(option.dataset.avatar===selected));}catch(error){showError(error);}
   };
+  updateStatus();$('profile-sync').onclick=()=>{const info=drive.getState();closeUtility();(info.connected?drive.sync():drive.connect?drive.connect():drive.open()).catch(showError);};
   $('profile-drive').onclick=()=>{closeUtility();drive.open().catch(showError);};
  }
  $('local-info').onclick=()=>open().catch(showError);

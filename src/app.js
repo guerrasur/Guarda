@@ -48,7 +48,7 @@ async function refresh(){[notes,labels]=await Promise.all([store.allNotes(),stor
 function scheduleSave(){drive?.markPending();status('Guardando…');clearTimeout(saveTimer);saveTimer=setTimeout(()=>saveDraft().catch(showError),240);}
 async function saveDraft(){
  clearTimeout(saveTimer);if(!editing)return;const id=editing.id;
- saveChain=saveChain.catch(()=>{}).then(async()=>{if(!editing||editing.id!==id)return;const n=localSnapshot(editing);await store.putNote(n);if(editing?.id===id){editing.updatedAt=n.updatedAt;editing.order=n.order;isNew=false;}const i=notes.findIndex(x=>x.id===id);if(i<0)notes.push(n);else notes[i]=n;status('Guardado local');return n;}).catch(e=>{status('Error al guardar',true);throw e;});return saveChain;
+ saveChain=saveChain.catch(()=>{}).then(async()=>{if(!editing||editing.id!==id)return;const n=localSnapshot(editing);const previous=notes.find(note=>note.id===id);if(previous&&JSON.stringify(previous)===JSON.stringify(n)){status('Guardado local');return n;}await store.putNote(n);if(editing?.id===id){editing.updatedAt=n.updatedAt;editing.order=n.order;isNew=false;}const i=notes.findIndex(x=>x.id===id);if(i<0)notes.push(n);else notes[i]=n;status('Guardado local');return n;}).catch(e=>{status('Error al guardar',true);throw e;});return saveChain;
 }
 async function saveAndRefresh(){await saveDraft();await refresh();}
 async function getAttachment(id){if(!attachmentCache.has(id)){const a=await store.getAttachment(id);if(a)attachmentCache.set(id,a);}return attachmentCache.get(id);}

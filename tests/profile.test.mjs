@@ -18,3 +18,10 @@ test('legacy cached header is repaired before reading the selected avatar',async
  const ui=initProfile({store:{getSetting:async()=> 'fern',addEventListener(){}},drive:{getState:()=>({connected:true,state:'synced'})},env:{document},utility:(_,html)=>document.getElementById('panel').innerHTML=html,closeUtility(){},showError:e=>{throw e;}});
  await ui.open();assert.equal(document.getElementById('profile-image').getAttribute('src'),'./avatars/fern.png');assert.equal(document.getElementById('drive-indicator').parentNode.id,'local-info');assert.equal(document.getElementById('drive-indicator').className,'profile-ring');assert.equal(document.getElementById('drive-indicator').textContent,'');assert.equal(document.querySelectorAll('#drive-indicator').length,1);
 });
+test('profile offers direct sync or reconnect and updates its status without closing the plant picker',async()=>{
+ const {document}=parseHTML('<html><button id="local-info"><img id="profile-image"></button><div id="panel"></div></html>');let info={connected:true,state:'synced'},listener,syncs=0,connects=0;
+ const profile=initProfile({store:{getSetting:async()=> 'clover',addEventListener(){}},drive:{getState:()=>info,subscribe:fn=>listener=fn,sync:async()=>syncs++,connect:async()=>connects++},env:{document},utility:(_,html)=>document.getElementById('panel').innerHTML=html,closeUtility(){},showError:e=>{throw e;}});
+ await profile.open();assert.equal(document.getElementById('profile-sync').textContent,'Sincronizar ahora');document.getElementById('profile-sync').onclick();assert.equal(syncs,1);
+ info={connected:true,state:'offline'};listener();assert.match(document.getElementById('profile-sync-status').textContent,/Sin conexión a internet/);assert.equal(document.querySelectorAll('[data-avatar]').length,3);
+ info={connected:false,enabled:true,state:'reconnect'};listener();assert.match(document.getElementById('profile-sync').textContent,/Reconectar/);document.getElementById('profile-sync').onclick();assert.equal(connects,1);
+});

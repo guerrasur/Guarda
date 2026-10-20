@@ -144,3 +144,7 @@ await test('closing a note waits for file storage and downloaded attachments kee
  const originalClick=window.HTMLAnchorElement.prototype.click;let filename;window.HTMLAnchorElement.prototype.click=function(){filename=this.download;};
  try{document.querySelector(`[data-note="${n.id}"] [data-action=download-audio]`).dispatchEvent(new window.Event('click',{bubbles:true}));await until(()=>filename);assert.equal(filename,'tema.mp3');}finally{window.HTMLAnchorElement.prototype.click=originalClick;}
 });
+await test('opening and closing an unchanged saved note does not generate a write or a cloud upload trigger',async()=>{
+ await create('Lectura sin cambios','Texto estable');const n=(await store.allNotes()).find(n=>n.title==='Lectura sin cambios');const revision=await store.getSetting('local-revision',0);
+ document.querySelector(`[data-note="${n.id}"]`).dispatchEvent(new window.Event('click',{bubbles:true}));await until(()=>!$('editor-layer').hidden);await $('editor-close').onclick();assert.equal(await store.getSetting('local-revision',0),revision);assert.equal((await store.allNotes()).find(x=>x.id===n.id).body,'Texto estable');
+});

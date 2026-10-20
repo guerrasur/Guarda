@@ -67,3 +67,13 @@ test('arbitrary file attachments preserve original names, MIME and exact bytes a
  const remote=await b.store.getAttachment(file.id);assert.equal(remote.name,file.name);assert.equal(remote.type,file.type);assert.equal(remote.originalFile,true);assert.deepEqual(new Uint8Array(await remote.blob.arrayBuffer()),new Uint8Array(await file.blob.arrayBuffer()));
  const backup=await b.store.exportBackup();await c.store.importBackup(backup);assert.deepEqual(new Uint8Array(await (await c.store.getAttachment(file.id)).blob.arrayBuffer()),new Uint8Array(await file.blob.arrayBuffer()));
 });
+test('folder migration runs after validation and can retry without losing the local copy',async t=>{
+ const f=await fixture(t),a=await f.device(),b=await f.device();await a.store.putNote(note('remote-file'));await a.sync.sync();await b.store.putNote(note('local-file'));let fail=true,moves=0,folders=0;
+ b.client.ensureFolder=async()=>folders++;b.client.placeSnapshot=async()=>{moves++;if(fail)throw Object.assign(Error('Drive temporalmente ocupado'),{code:'DRIVE_RETRYABLE'});};
+ await assert.rejects(b.sync.sync(),error=>error.code==='DRIVE_RETRYABLE');assert.deepEqual((await b.store.allNotes()).map(n=>n.id),['local-file']);fail=false;await b.sync.sync();assert.ok(moves>=2);assert.equal(folders,2);assert.deepEqual(new Set((await b.store.allNotes()).map(n=>n.id)),new Set(['local-file','remote-file']));
+ f.files.set('bad',{format:'invalid'});const before=moves;await assert.rejects(b.sync.sync());assert.equal(moves,before,'invalid releases must not be moved or overwritten');
+});
+test('duplicate snapshots from one device converge without blocking synchronization or deleting historical files',async t=>{
+ const f=await fixture(t),a=await f.device(),b=await f.device();await a.store.putNote(note('same-device','Original'));await a.sync.sync();const [id,release]=[...f.files.entries()][0];f.files.set('duplicate-copy',structuredClone(release));
+ await a.store.putNote(note('same-device','Edición posterior'));await a.sync.sync();await a.sync.sync();await b.sync.sync();assert.equal((await a.store.allNotes()).length,1);assert.equal((await b.store.allNotes())[0].body,'Edición posterior');assert.ok(f.files.has(id));assert.ok(f.files.has('duplicate-copy'));
+});
