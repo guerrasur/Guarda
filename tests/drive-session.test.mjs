@@ -20,9 +20,15 @@ test('a new page consumes the update handoff once without storing any credential
  const after=f.bridge(worker);assert.equal((await after.take()).token,session().token);assert.equal(await after.take(),null);
  assert.equal(f.values.size,1);assert.doesNotMatch(JSON.stringify([...f.values]),/access-token|owner|google-client/);
 });
-test('handoffs expire quickly and disappear completely if the worker is terminated',async()=>{
- const f=fixture(),worker=f.worker();await f.bridge(worker).offer(session());f.advance(61000);assert.equal(await f.bridge(worker).take(),null);
- await f.bridge(worker).offer(session());assert.equal(await f.bridge(f.worker()).take(),null);
+test('handoffs survive a minute and expire at the token deadline',async()=>{
+ const f=fixture(),worker=f.worker(),snapshot=session();assert.equal(await f.bridge(worker).offer(snapshot),true);
+ f.advance(61000);assert.equal((await f.bridge(worker).take()).token,snapshot.token);
+ assert.equal(await f.bridge(worker).offer(snapshot),true);f.advance(3500001-61000);assert.equal(await f.bridge(worker).take(),null);
+});
+test('terminating the worker discards a successfully stored, unexpired session',async()=>{
+ const f=fixture(),worker=f.worker();assert.equal(await f.bridge(worker).offer(session()),true);
+ assert.equal(await f.bridge(f.worker()).take(),null);
+ assert.equal((await f.bridge(worker).take()).token,session().token);
 });
 test('other tabs and pages outside Guarda cannot read or replace the handoff',async()=>{
  const f=fixture(),worker=f.worker();await f.bridge(worker).offer(session());

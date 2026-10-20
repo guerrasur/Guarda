@@ -20,7 +20,11 @@ Antes de abrir la app al público, revisar los requisitos de Branding/verificaci
 
 Cada persona toca Conectar Google Drive, elige **su propia cuenta** y acepta el permiso de los archivos de Guarda. Los datos consumen el almacenamiento de esa cuenta. Los límites de solicitudes de la API corresponden al proyecto de la aplicación. No se ha habilitado facturación desde la app.
 
-Los tokens de acceso solo viven en memoria. Desde v0.6.12, antes de recargar por una actualización, Guarda intenta terminar los cambios pendientes y entregar la sesión válida al nuevo service worker. La nueva página la recupera una sola vez y comprueba la cuenta con Google antes de sincronizar. El traspaso vence a los 60 segundos, queda separado por pestaña y no escribe tokens en IndexedDB, localStorage, sessionStorage, cachés ni copias. Si el navegador termina el worker, el token vence o Google revoca el acceso, se conserva la cuenta vinculada y aparece la reconexión. Desde el perfil se puede tocar Reconectar Google Drive directamente; la librería de Google se prepara sin abrir ventanas por sí sola, usando como sugerencia la cuenta anterior. La solicitud se inicia desde el toque explícito, como exige el modelo de tokens de Google. Esto evita almacenar credenciales y funciona sin un backend para renovar sesiones. Desconectar deja las notas locales y los archivos remotos; el permiso también puede revocarse en la cuenta de Google. Se impide cambiar la cuenta vinculada a las notas locales para evitar mezclas: usar otro perfil/navegador para una segunda cuenta.
+Los tokens de acceso solo viven en memoria. Guarda intenta conservar el acceso vigente al recargar o actualizar mediante una copia temporal en la memoria del service worker. La nueva página la consume una sola vez y comprueba la cuenta con Google antes de sincronizar. La copia dura como máximo hasta el vencimiento del token y desaparece si el navegador termina el worker; no es una sesión permanente. No escribe tokens en IndexedDB, localStorage, sessionStorage, cachés ni copias de seguridad.
+
+Si falta el acceso, la app prepara la librería de Google y, para una cuenta ya vinculada con correo conocido, intenta recuperarlo al hacer clic o tocar una zona libre del tablero. Se usa `prompt: 'none'`: Google no debe presentar pantallas de acceso o consentimiento; el navegador todavía puede abrir una ventana transitoria o bloquearla. Nunca se intenta mientras se edita, graba, reproduce o usa un diálogo. Si Google requiere confirmación, hay que tocar Reconectar Google Drive desde el perfil. Cancelar o fallar la autorización detiene los intentos automáticos de esa página hasta una reconexión correcta. La librería se vuelve a preparar después de un fallo de red.
+
+Desconectar desactiva la recuperación automática y borra la copia en memoria; conserva las notas locales y los archivos remotos. El permiso también puede revocarse en la cuenta de Google. Se comprueba la cuenta antes de considerar utilizable el acceso y antes de sincronizar, para evitar mezclar las notas con otra cuenta. Usar otro perfil/navegador para una segunda cuenta.
 
 Sincroniza tras cambios guardados (con una breve espera), cada minuto con la app visible, al volver y al recuperar conexión, siempre que haya sesión válida y no se esté editando, grabando o reproduciendo. Sin sesión/internet sigue el guardado local. Incluye notas, listas, etiquetas, orden, papelera y archivos. Apariencia y demás preferencias son propias de cada dispositivo.
 
@@ -83,3 +87,27 @@ Una sesión duradera con renovación automática aun después de cerrar la app
 requiere otra arquitectura: flujo de código con backend y refresh tokens
 protegidos. No se incorporan secretos al frontend ni infraestructura de terceros.
 Referencia: https://developers.google.com/identity/oauth2/web/guides/use-code-model
+
+
+### Recuperación de sesión (0.6.15)
+
+Se amplía el traspaso de v0.6.12 a las recargas normales y a los eventos de salida
+u ocultamiento. El límite anterior de 60 segundos se reemplaza por el vencimiento
+del propio token. Sigue siendo una recuperación de mejor esfuerzo: el navegador
+puede terminar el worker en cualquier momento y una nueva pestaña no hereda
+necesariamente su identificador.
+
+La recuperación al iniciar se completa antes de permitir una nueva autorización.
+Las respuestas de otra cuenta se rechazan antes de habilitar la sesión; un acceso
+revocado se elimina del traspaso. La renovación automática usa consentimiento
+existente y nunca cierra el diálogo que el usuario esté usando. La desconexión se
+aplica antes de esperar a que el worker confirme la limpieza.
+
+Las pruebas adicionales cubren esos casos, cancelación, confirmación requerida,
+fallo inicial de Google, vuelta de internet y apertura de una nota durante OAuth.
+Se simulan los eventos confiables: no prueban la activación de ventanas de Safari
+ni un inicio de sesión real en iPhone. La expiración y la terminación del worker
+se prueban por separado, comprobando que realmente se aceptó una sesión vigente.
+
+La renovación permanente sin interacción requiere OAuth de servidor con acceso
+offline y custodia de refresh tokens; GitHub Pages por sí solo no ofrece eso.

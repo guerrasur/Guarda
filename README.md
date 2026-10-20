@@ -2,6 +2,11 @@
 
 App web instalable de notas, listas y grabaciones de audio, inspirada en Google Keep. Identidad propia con el guardia medieval aprobado.
 
+v0.6.15: recuperación temporal de Drive al recargar, renovación de consentimiento
+existente al interactuar con el tablero y reintento tras fallos de conexión.
+Respeta editores y diálogos, detiene intentos tras cancelar y verifica la cuenta
+antes de habilitar el acceso. No garantiza una sesión permanente al cerrar iOS.
+
 v0.6.14: los cambios de adjuntos recibidos desde otra pestaña esperan al cierre
 del editor, conservando los archivos activos al fijar o recolorear una nota.
 

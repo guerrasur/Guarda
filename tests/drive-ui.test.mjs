@@ -1,12 +1,12 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {parseHTML} from 'linkedom';import {initDrive} from '../src/drive-ui.js';import {DriveSync,SyncDeferredError} from '../src/drive-sync.js';import {DRIVE_SCOPE} from '../src/drive-client.js';
 import {DriveSessionBridge} from '../src/drive-session.js';import {GOOGLE_CLIENT_ID} from '../src/drive-config.js';
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
-function fixture(saved){
- const {document,window}=parseHTML('<html><body><button id="drive-indicator" hidden></button><div id="panel"></div></body></html>');const values=new Map(Object.entries(saved));const requests=[];let config,fail=false,onChange,busy=false,retry,retryDelay;
- const env={document,window,navigator:{onLine:true},AbortController,setTimeout:(fn,ms)=>{if(ms<90000){retry=fn;retryDelay=ms;return 0;}return setTimeout(fn,ms);},clearTimeout:id=>{if(id===0)retry=null;else clearTimeout(id);},setInterval:()=>0,fetch:async()=>Response.json({user:{permissionId:'owner',emailAddress:'owner@example.test'}}),google:{accounts:{oauth2:{hasGrantedAllScopes:r=>r.scope===DRIVE_SCOPE,initTokenClient:cfg=>{if(fail)throw Error('Google no disponible');config=cfg;return {requestAccessToken:options=>{requests.push(options);queueMicrotask(()=>cfg.callback({access_token:'token',scope:DRIVE_SCOPE,expires_in:3600}));}};}}}}};
+function fixture(saved,options={}){
+ const {document,window}=parseHTML('<html><body><button id="drive-indicator" hidden></button><div id="panel"></div></body></html>');const values=new Map(Object.entries(saved));const requests=[];let config,fail=false,onChange,busy=false,retry,retryDelay,closed=0;
+ const env={document,window,navigator:{onLine:true},AbortController,setTimeout:(fn,ms)=>{if(ms<90000){retry=fn;retryDelay=ms;return 0;}return setTimeout(fn,ms);},clearTimeout:id=>{if(id===0)retry=null;else clearTimeout(id);},setInterval:()=>0,fetch:async()=>Response.json({user:{permissionId:'owner',emailAddress:'owner@example.test'}}),google:{accounts:{oauth2:{hasGrantedAllScopes:r=>r.scope===DRIVE_SCOPE,initTokenClient:cfg=>{if(fail)throw Error('Google no disponible');config=cfg;return {requestAccessToken:oauthOptions=>{requests.push(oauthOptions);queueMicrotask(()=>options.authorize?options.authorize(cfg):cfg.callback({access_token:'token',scope:DRIVE_SCOPE,expires_in:3600}));}};}}}}};
  const store={getSetting:async(k,fallback)=>values.has(k)?values.get(k):fallback,setSetting:async(k,v)=>values.set(k,v),addEventListener:(_,fn)=>onChange=fn};
- const errors=[];const ui=initDrive({store,env,isBusy:()=>busy,onApplied:async()=>{},utility:(_,html)=>document.getElementById('panel').innerHTML=html,closeUtility(){},showError:e=>errors.push(e)});
- return {ui,env,document,get retryDelay(){return retryDelay;},get hasRetry(){return !!retry;},values,requests,errors,setBusy:value=>busy=value,retry:()=>{const fn=retry;retry=null;return fn?.();},fail:value=>fail=value,config:()=>config,change:(type='note')=>onChange({detail:{type,id:type==='setting'?'theme':'note'}})};
+ const errors=[];const ui=initDrive({store,env,isBusy:()=>busy,onApplied:async()=>{},utility:(_,html)=>document.getElementById('panel').innerHTML=html,closeUtility(){closed++;},showError:e=>errors.push(e)});
+ return {ui,env,document,get closed(){return closed;},get retryDelay(){return retryDelay;},get hasRetry(){return !!retry;},values,requests,errors,setBusy:value=>busy=value,retry:()=>{const fn=retry;retry=null;return fn?.();},fail:value=>fail=value,config:()=>config,change:(type='note')=>onChange({detail:{type,id:type==='setting'?'theme':'note'}})};
 }
 test('previously linked Drive shows reconnect after reload, renews with account hint and remembers explicit disconnect',async()=>{
  const original=DriveSync.prototype.sync;DriveSync.prototype.sync=async()=>({});
@@ -97,7 +97,7 @@ test('updating hands off the verified session, flushes pending edits and restore
   const first=fixture({});await first.ui.open();await settle();await first.ui.connect();assert.equal(first.requests.length,1);
   first.change();const before=calls;assert.equal(await first.ui.prepareReload(),true);assert.equal(calls,before+1);assert.equal(handoff.clientId,GOOGLE_CLIENT_ID);
   const next=fixture(Object.fromEntries(first.values));for(let i=0;i<4;i++)await settle();assert.equal(next.ui.getState().connected,true);assert.equal(next.ui.getState().state,'synced');assert.equal(next.requests.length,0);
-  assert.doesNotMatch(JSON.stringify([...next.values]),/access_token|"token"|"expires"/);assert.equal(handoff,null);
+  assert.doesNotMatch(JSON.stringify([...next.values]),/access_token|"token"|"expires"/);assert.equal(handoff.user.permissionId,'owner');
  }finally{DriveSync.prototype.sync=originalSync;DriveSessionBridge.prototype.take=originalTake;DriveSessionBridge.prototype.offer=originalOffer;}
 });
 test('transient identification failures retry with the already authorized token',async()=>{
@@ -121,4 +121,109 @@ test('concurrent Google preparation waits for one initialization before enabling
  const first=f.ui.prepare(),second=f.ui.prepare();assert.equal(first,second);assert.equal(f.ui.getState().preparing,true);
  const script=f.document.querySelector('script');assert.ok(script);assert.equal(f.document.querySelectorAll('script').length,1);
  f.env.google=google;script.onload();await Promise.all([first,second]);assert.equal(f.ui.getState().preparing,false);assert.equal(f.requests.length,0);
+});
+
+test('linked account renews on first trusted interaction and synchronizes without the settings panel',async()=>{
+ const original=DriveSync.prototype.sync;let calls=0;DriveSync.prototype.sync=async()=>{calls++;return {};};
+ try{
+  const f=fixture({'drive-bound-account':'owner','drive-connection':{enabled:true,user:{permissionId:'owner',emailAddress:'owner@example.test'}}});await settle();
+  f.document.dispatchEvent(new f.env.window.Event('pointerup'));await settle();assert.equal(f.requests.length,0,'synthetic events cannot open Google');
+  gesture(f);await settle();await settle();
+  assert.equal(f.requests.length,1);assert.equal(calls,1);assert.equal(f.ui.getState().state,'synced');
+ }finally{DriveSync.prototype.sync=original;}
+});
+test('ordinary pagehide preserves a verified session in worker memory',async()=>{
+ const originalSync=DriveSync.prototype.sync,originalOffer=DriveSessionBridge.prototype.offer;let offers=0;
+ DriveSync.prototype.sync=async()=>({});DriveSessionBridge.prototype.offer=async()=>{offers++;return true;};
+ try{const f=fixture({});await f.ui.open();await settle();await f.ui.connect();const before=offers;f.env.window.dispatchEvent(new f.env.window.Event('pagehide'));await settle();assert.equal(offers,before+1);assert.doesNotMatch(JSON.stringify([...f.values]),/"token"/);}
+ finally{DriveSync.prototype.sync=originalSync;DriveSessionBridge.prototype.offer=originalOffer;}
+});
+
+const linked={'drive-bound-account':'owner','drive-connection':{enabled:true,user:{permissionId:'owner',emailAddress:'owner@example.test'}}};
+function gesture(f,target=f.document.body){
+ // Simulated trusted events; this does not exercise Safari user activation.
+ for(const type of ['pointerup','click']){const event=new f.env.window.Event(type,{bubbles:true});Object.defineProperty(event,'isTrusted',{value:true});target.dispatchEvent(event);}
+}
+test('automatic renewal waits while editing and ignores editable, dialog and action surfaces',async()=>{
+ const f=fixture(linked);await settle();f.setBusy(true);gesture(f);await settle();assert.equal(f.requests.length,0);
+ f.setBusy(false);
+ for(const html of ['<div contenteditable="true"><span>text</span></div>','<dialog open><p>dialog</p></dialog>','<article data-note="1"><span>note</span></article>','<button>button</button>','<input>']){
+  const root=f.document.createElement('div');root.innerHTML=html;f.document.body.append(root);gesture(f,root.querySelector('span,p')||root.firstElementChild);await settle();assert.equal(f.requests.length,0,html);root.remove();
+ }
+});
+test('automatic renewal does not close another dialog and uses no-consent mode',async()=>{
+ const original=DriveSync.prototype.sync;DriveSync.prototype.sync=async()=>({});
+ try{const f=fixture(linked);await settle();gesture(f);await settle();await settle();assert.equal(f.ui.getState().connected,true);assert.equal(f.closed,0);assert.deepEqual(f.requests,[{prompt:'none',login_hint:'owner@example.test'}]);}
+ finally{DriveSync.prototype.sync=original;}
+});
+test('a mismatched account cannot trigger repeated automatic authorization or uploads',async()=>{
+ const original=DriveSync.prototype.sync;let syncs=0;DriveSync.prototype.sync=async()=>{syncs++;return {};};
+ try{const f=fixture(linked);await settle();f.env.fetch=async()=>Response.json({user:{permissionId:'other',emailAddress:'other@example.test'}});
+  gesture(f);await settle();await settle();assert.equal(f.ui.getState().connected,false);assert.equal(syncs,0);assert.equal(f.values.get('drive-connection').user.permissionId,'owner');
+  gesture(f);await settle();assert.equal(f.requests.length,1);assert.match(f.ui.getState().message,/otra cuenta/);
+ }finally{DriveSync.prototype.sync=original;}
+});
+test('cancelling manual authorization prevents automatic popups until an explicit retry',async()=>{
+ let cancel=true;const original=DriveSync.prototype.sync;DriveSync.prototype.sync=async()=>({});
+ try{const f=fixture(linked,{authorize:cfg=>cancel?cfg.error_callback({type:'popup_closed'}):cfg.callback({access_token:'token',scope:DRIVE_SCOPE,expires_in:3600})});await settle();
+  await assert.rejects(f.ui.connect());gesture(f);await settle();assert.equal(f.requests.length,1);
+  cancel=false;await f.ui.connect();assert.equal(f.ui.getState().state,'synced');
+ }finally{DriveSync.prototype.sync=original;}
+});
+test('a failed Google script initialization retries when connectivity returns',async()=>{
+ const f=fixture(linked);f.fail(true);await settle();assert.equal(f.ui.getState().preparing,false);f.fail(false);
+ f.env.window.dispatchEvent(new f.env.window.Event('online'));await settle();assert.equal(f.ui.getState().preparing,false);
+ const original=DriveSync.prototype.sync;DriveSync.prototype.sync=async()=>({});
+ try{gesture(f);await settle();await settle();assert.equal(f.requests.length,1);assert.equal(f.ui.getState().connected,true);}finally{DriveSync.prototype.sync=original;}
+});
+test('a pending reload recovery is checked before any automatic authorization',async()=>{
+ const originalSync=DriveSync.prototype.sync,originalTake=DriveSessionBridge.prototype.take;let release;
+ DriveSync.prototype.sync=async()=>({});DriveSessionBridge.prototype.take=()=>new Promise(resolve=>release=resolve);
+ try{const f=fixture(linked);await settle();gesture(f);await settle();assert.equal(f.requests.length,0);
+  release({clientId:GOOGLE_CLIENT_ID,token:'handoff',expires:Date.now()+3500000,user:{permissionId:'owner'}});await settle();await settle();assert.equal(f.ui.getState().connected,true);assert.equal(f.requests.length,0);
+ }finally{DriveSync.prototype.sync=originalSync;DriveSessionBridge.prototype.take=originalTake;}
+});
+test('disconnect disables automatic renewal before waiting for worker cleanup',async()=>{
+ const originalSync=DriveSync.prototype.sync,originalClear=DriveSessionBridge.prototype.clear;let release;
+ DriveSync.prototype.sync=async()=>({});
+ try{const f=fixture(linked);await settle();await f.ui.connect();await f.ui.open();
+  DriveSessionBridge.prototype.clear=()=>new Promise(resolve=>release=resolve);
+  const done=f.document.getElementById('drive-disconnect').onclick();await settle();gesture(f);await settle();assert.equal(f.ui.getState().enabled,false);assert.equal(f.requests.length,1);release();await done;
+ }finally{DriveSync.prototype.sync=originalSync;DriveSessionBridge.prototype.clear=originalClear;}
+});
+test('Google requiring interaction stops automatic retries and still allows manual reconnection',async()=>{
+ let interactive=false;const original=DriveSync.prototype.sync;DriveSync.prototype.sync=async()=>({});
+ try{const f=fixture(linked,{authorize:cfg=>cfg.callback(interactive?{access_token:'token',scope:DRIVE_SCOPE,expires_in:3600}:{error:'login_required'})});await settle();
+  gesture(f);await settle();assert.equal(f.requests.length,1);assert.match(f.ui.getState().message,/confirmación/);
+  gesture(f);await f.ui.sync();gesture(f);await settle();assert.equal(f.requests.length,1);assert.equal(f.values.get('drive-connection').enabled,true);
+  interactive=true;await f.ui.connect();assert.equal(f.ui.getState().state,'synced');assert.equal(f.requests[1].prompt,'');
+ }finally{DriveSync.prototype.sync=original;}
+});
+test('an editor opened during renewal is preserved and synchronization waits for it to close',async()=>{
+ let authorize;const original=DriveSync.prototype.sync;let calls=0;DriveSync.prototype.sync=async()=>{calls++;return {};};
+ try{const f=fixture(linked,{authorize:cfg=>authorize=cfg});await settle();gesture(f);await settle();f.setBusy(true);
+  authorize.callback({access_token:'token',scope:DRIVE_SCOPE,expires_in:3600});await settle();await settle();
+  assert.equal(f.ui.getState().connected,true);assert.equal(f.ui.getState().state,'pending');assert.equal(f.closed,0);assert.equal(calls,0);
+  f.setBusy(false);f.ui.resume();await f.retry();assert.equal(calls,1);assert.equal(f.ui.getState().state,'synced');
+ }finally{DriveSync.prototype.sync=original;}
+});
+test('offline reload restores the same session when internet returns without a popup',async()=>{
+ const originalSync=DriveSync.prototype.sync,originalTake=DriveSessionBridge.prototype.take;let calls=0;
+ DriveSync.prototype.sync=async()=>{calls++;return {};};DriveSessionBridge.prototype.take=async()=>({clientId:GOOGLE_CLIENT_ID,token:'handoff',expires:Date.now()+3500000,user:{permissionId:'owner'}});
+ try{const f=fixture(linked);f.env.navigator.onLine=false;await settle();gesture(f);await settle();assert.equal(f.requests.length,0);assert.equal(calls,0);
+  f.env.navigator.onLine=true;f.env.window.dispatchEvent(new f.env.window.Event('online'));await settle();await settle();assert.equal(calls,1);assert.equal(f.requests.length,0);assert.equal(f.ui.getState().state,'synced');
+ }finally{DriveSync.prototype.sync=originalSync;DriveSessionBridge.prototype.take=originalTake;}
+});
+test('a revoked token is removed from worker memory instead of restored again on reload',async()=>{
+ const originalSync=DriveSync.prototype.sync,originalOffer=DriveSessionBridge.prototype.offer,originalClear=DriveSessionBridge.prototype.clear;let handoff=null;
+ DriveSync.prototype.sync=async function(){await this.client.listSnapshots();return {};};
+ DriveSessionBridge.prototype.offer=async session=>{handoff=session;return true;};DriveSessionBridge.prototype.clear=async()=>{handoff=null;};
+ try{const f=fixture(linked);await settle();f.env.fetch=async url=>url.includes('about?')?Response.json({user:{permissionId:'owner',emailAddress:'owner@example.test'}}):new Response(null,{status:401});
+  await assert.rejects(f.ui.connect(),error=>error.code==='DRIVE_AUTH');assert.equal(handoff,null);assert.equal(f.ui.getState().connected,false);assert.equal(f.ui.getState().state,'reconnect');
+ }finally{DriveSync.prototype.sync=originalSync;DriveSessionBridge.prototype.offer=originalOffer;DriveSessionBridge.prototype.clear=originalClear;}
+});
+test('an explicitly disconnected device never reconnects from clicks or lifecycle events',async()=>{
+ const f=fixture({...linked,'drive-connection':{enabled:false}});await settle();gesture(f);
+ f.env.window.dispatchEvent(new f.env.window.Event('online'));f.env.document.dispatchEvent(new f.env.window.Event('visibilitychange'));await settle();
+ assert.equal(f.requests.length,0);assert.equal(f.ui.getState().enabled,false);assert.equal(f.ui.getState().state,'hidden');
 });

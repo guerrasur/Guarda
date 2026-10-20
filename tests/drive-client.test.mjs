@@ -71,3 +71,17 @@ test('a script that loads without initializing Google can be loaded again on ret
  const failed=f.client.prepare(id);scripts[0].onload();await assert.rejects(failed,/inicializarse/);assert.equal(f.client.loading,null);
  const retry=f.client.prepare(id);assert.equal(scripts.length,2);env.google=google;scripts[1].onload();await retry;assert.ok(f.client.oauth);assert.equal(f.client.loading,null);
 });
+test('a renewed token for another account is rejected before becoming connected',async()=>{
+ const f=setup();await f.client.prepare(id);f.fetch(async()=>Response.json({user:{permissionId:'other',emailAddress:'other@example.test'}}));
+ await assert.rejects(f.client.connect({accountId:'owner',hint:'owner@example.test'}),error=>error.code==='DRIVE_ACCOUNT');
+ assert.equal(f.client.connected,false);assert.equal(f.client.token,null);assert.equal(f.client.user,null);assert.equal(f.client.pending,null);
+ assert.equal(f.requests.length,1);assert.match(f.requests[0].url,/about\?/);
+});
+test('Google interaction-required errors remain actionable after a no-consent renewal',async()=>{
+ const f=setup();await f.client.prepare(id);
+ f.client.env.google.accounts.oauth2.initTokenClient=cfg=>({requestAccessToken:options=>{
+  assert.equal(options.prompt,'none');assert.equal(options.login_hint,'owner@example.test');queueMicrotask(()=>cfg.callback({error:'login_required'}));
+ }});
+ await assert.rejects(f.client.connect({interactive:false,hint:'owner@example.test',accountId:'owner'}),error=>error.code==='DRIVE_INTERACTION');
+ assert.equal(f.client.pending,null);assert.equal(f.client.connected,false);assert.equal(f.requests.length,0);
+});

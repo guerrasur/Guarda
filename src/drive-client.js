@@ -18,7 +18,7 @@ export class DriveClient{
   const data=await this.request('about?fields=user(permissionId,emailAddress,displayName),storageQuota');
   if(token!==this.token)throw driveError('La sesión cambió durante la conexión. Reintentá.','DRIVE_RETRYABLE');
   if(!data.user?.permissionId)throw driveError('Google no devolvió la cuenta. Se reintentará sin volver a pedir acceso.','DRIVE_RETRYABLE');
-  if(accountId&&data.user.permissionId!==accountId){this.disconnect();throw driveError('Estas notas están vinculadas a otra cuenta. Reconectá la cuenta anterior para evitar mezclarlas.','DRIVE_ACCOUNT');}
+  if(accountId&&data.user.permissionId!==accountId){this.expire();this.user=null;this.folder=null;throw driveError('Estas notas están vinculadas a otra cuenta. Reconectá la cuenta anterior para evitar mezclarlas.','DRIVE_ACCOUNT');}
   this.user=data.user;this.identityVerified=true;this.folder=null;return this.user;
  }
  async prepare(clientId){
@@ -41,16 +41,16 @@ export class DriveClient{
   if(!pending||pending!==this.pending)return;
   this.env.clearTimeout(pending.timer);this.pending=null;pending.reject(error);
  }
- connect({hint='',selectAccount=false}={}){
+ connect({hint='',selectAccount=false,interactive=true,accountId=null}={}){
   if(!this.oauth)return Promise.reject(Error('Primero configurá la conexión con Google.'));
   if(this.pending)return Promise.reject(Error('La conexión con Google ya está en curso.'));
   return new Promise((resolve,reject)=>{
-   const pending={resolve,reject};this.pending=pending;
+   const pending={resolve,reject,accountId};this.pending=pending;
    pending.timer=this.env.setTimeout(()=>this.rejectAuthorization(Error('Google no respondió. Volvé a tocar Reconectar; si no se abre la ventana, abrí Guarda en Safari o Chrome y permití las ventanas emergentes.'),pending),90000);
    try{
     // A fresh callback per attempt prevents a late popup from reviving a cancelled session.
     this.oauth=this.env.google.accounts.oauth2.initTokenClient({...this.oauthConfig,callback:response=>this.finishAuthorization(response,pending),error_callback:error=>this.rejectAuthorization(Error(error?.type==='popup_failed_to_open'?'No se pudo abrir Google. Permití las ventanas emergentes o abrí Guarda en Safari o Chrome y reintentá.':'Se cerró la ventana de Google. Podés volver a conectar.'),pending)});
-    this.oauth.requestAccessToken({prompt:selectAccount||!hint?'select_account':'',...(hint?{login_hint:hint}:{})});
+    this.oauth.requestAccessToken({prompt:interactive?(selectAccount||!hint?'select_account':''):'none',...(hint?{login_hint:hint}:{})});
    }catch(error){this.rejectAuthorization(error,pending);}
   });
  }
@@ -58,9 +58,10 @@ export class DriveClient{
   if(!pending||pending!==this.pending)return;
   this.env.clearTimeout(pending.timer);
   try{
+   if(['interaction_required','login_required','consent_required','account_selection_required'].includes(response.error))throw driveError('Google necesita tu confirmación. Tocá Reconectar Google Drive; tus cambios siguen guardados en este dispositivo.','DRIVE_INTERACTION');
    if(response.error||!response.access_token||!this.env.google.accounts.oauth2.hasGrantedAllScopes(response,DRIVE_SCOPE))throw Error(response.error==='access_denied'?'Google no autorizó la conexión. Reintentá con la cuenta vinculada; si aparece Error 403 access_denied, esa cuenta debe estar habilitada en el proyecto de Google.':'No se autorizó el acceso a los archivos de Guarda en Drive.');
    this.token=response.access_token;this.expires=Date.now()+Math.max(0,Number(response.expires_in||0)-60)*1000;this.identityVerified=false;
-   const user=await this.identify();
+   const user=await this.identify(pending.accountId);
    if(pending!==this.pending)return;
    this.pending=null;pending.resolve(user);
   }catch(error){if(pending!==this.pending)return;if(error.code!=='DRIVE_RETRYABLE'&&!this.identityVerified)this.expire();this.rejectAuthorization(error,pending);}

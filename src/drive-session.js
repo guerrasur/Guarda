@@ -1,4 +1,4 @@
-// Best-effort, one-use handoff across an application update. Only the tab's
+// Best-effort, one-use handoff across a reload or application update. Only the tab's
 // random ID enters sessionStorage; the access token stays in worker RAM.
 export class DriveSessionBridge {
  constructor({env=globalThis}={}) { this.env=env;this.key=null; }
