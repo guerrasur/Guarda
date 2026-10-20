@@ -2,6 +2,10 @@
 
 App web instalable de notas, listas y grabaciones de audio, inspirada en Google Keep. Identidad propia con el guardia medieval aprobado.
 
+v0.6.13: tarjetas estables al editar o reordenar, adjuntos cargados por sección,
+cursor conservado en listas, acciones múltiples reversibles y guardadas en una
+sola transacción, y caché de adjuntos actualizada entre pestañas.
+
 v0.6.12: continuidad temporal de Drive entre actualizaciones, reconexión con la
 cuenta vinculada y recuperación de errores de red después de autorizar.
 [Detalles de conexión](docs/google-drive.md).
@@ -50,7 +54,7 @@ El procesamiento local de ZIP usa una copia de fflate 0.8.2 incluida en la app (
 
 ## Verificación
 
-66 pruebas automatizadas: persistencia tras reapertura, orden por edición y ajuste persistido, listas/archivo/restauración, sanitización, audio adjunto, MIME compatible, pausa/reanudación, fallos de permisos y almacenamiento, recuperación, backup con bytes originales y shell offline.
+150 pruebas automatizadas: persistencia tras reapertura, orden por edición y ajuste persistido, listas/archivo/restauración, sanitización, audio adjunto, MIME compatible, pausa/reanudación, fallos de permisos y almacenamiento, recuperación, backup con bytes originales y shell offline.
 
 Se verificó la carga de la publicación de Pages en un navegador real. Las pruebas automatizadas usan un DOM simulado y IndexedDB simulado; la grabación/instalación en un iPhone físico queda pendiente de comprobar.
 

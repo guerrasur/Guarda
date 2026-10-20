@@ -177,3 +177,40 @@ await test('new audio notes save MP3 and full waveform metadata and defer wavefo
   await $('editor-close').onclick();const preview=document.querySelector(`[data-note="${n.id}"]`);assert.equal(preview.querySelector('audio'),null);assert.equal(preview.querySelector('[data-waveform]'),null);assert.ok(preview.querySelector('.audio-preview'));preview.dispatchEvent(new window.Event('click',{bubbles:true}));await until(()=>!!$('editor-audios').querySelector('audio'));assert.equal($('editor-audios').querySelector('.wave-progress'),null);$('editor-audios').querySelector('audio').dispatchEvent(new window.Event('play',{bubbles:true}));await until(()=>!!$('editor-audios').querySelector('.wave-progress'));assert.equal($('editor-audios').querySelector('[data-waveform]').dataset.ready,'true');await $('editor-close').onclick();
  }finally{if(oldContext===undefined)delete globalThis.AudioContext;else globalThis.AudioContext=oldContext;if(oldWorker===undefined)delete globalThis.Worker;else globalThis.Worker=oldWorker;globalThis.MediaRecorder=oldRecorder;}
 });
+
+await test('rapid create taps open one editor and save only one note',async()=>{
+ const count=(await store.allNotes()).length;await Promise.all([$('new-note').onclick(),$('new-note').onclick()]);input($('note-title'),'Un solo toque lógico');await $('editor-close').onclick();assert.equal((await store.allNotes()).length,count+1);assert.equal((await store.allNotes()).filter(n=>n.title==='Un solo toque lógico').length,1);
+});
+await test('pinning and recoloring a checklist preserve its active text field and typed value',async()=>{
+ await $('new-list').onclick();input($('note-title'),'Lista sin saltos');const field=$('editor-checklist').querySelector('input[type=text]');input(field,'Mantener el cursor');
+ await $('editor-pin').onclick();assert.equal($('editor-checklist').querySelector('input[type=text]'),field);assert.equal(field.value,'Mantener el cursor');
+ $('editor-color').onclick({currentTarget:$('editor-color')});$('popover').querySelector('[data-color=mint]').dispatchEvent(new window.Event('click',{bubbles:true}));await until(()=>$('editor').style.getPropertyValue('--card-bg')==='#e2f6d3');assert.equal($('editor-checklist').querySelector('input[type=text]'),field);await $('editor-close').onclick();
+});
+await test('bulk actions can unpin and unarchive selected notes with matching labels',async()=>{
+ await create('Selección reversible A');await create('Selección reversible B');const ids=(await store.allNotes()).filter(n=>n.title.startsWith('Selección reversible')).map(n=>n.id);
+ const select=async()=>{for(const id of ids){document.querySelector(`[data-note="${id}"] [data-action=select]`).dispatchEvent(new window.Event('click',{bubbles:true}));await until(()=>document.querySelector(`[data-note="${id}"]`).classList.contains('selected'));}};
+ async function action(name){$('selection-bar').querySelector(`[data-action="${name}"]`).dispatchEvent(new window.Event('click',{bubbles:true}));await until(()=>$('selection-bar').hidden);}
+ await select();await action('bulk-pin');assert.ok((await store.allNotes()).filter(n=>ids.includes(n.id)).every(n=>n.pinned));
+ await select();assert.equal($('selection-bar').querySelector('[data-action=bulk-pin]').getAttribute('aria-label'),'Desfijar seleccionadas');await action('bulk-pin');assert.ok((await store.allNotes()).filter(n=>ids.includes(n.id)).every(n=>!n.pinned));
+ await select();await action('bulk-archive');document.querySelector('[data-route=archive]').dispatchEvent(new window.Event('click',{bubbles:true}));await until(()=>ids.every(id=>document.querySelector(`[data-note="${id}"]`)));
+ await select();assert.equal($('selection-bar').querySelector('[data-action=bulk-archive]').getAttribute('aria-label'),'Desarchivar seleccionadas');await action('bulk-archive');assert.ok((await store.allNotes()).filter(n=>ids.includes(n.id)).every(n=>!n.archived));
+});
+await test('editing and moving one note preserves unrelated cards, navigation and search controls',async()=>{
+ document.querySelector('[data-route=notes]').dispatchEvent(new window.Event('click',{bubbles:true}));await until(()=>!$('composer').hidden);
+ await create('Idea para cámara');await create('Otra nota estable');const list=await store.allNotes(),a=list.find(n=>n.title==='Idea para cámara'),b=list.find(n=>n.title==='Otra nota estable');
+ const stable=document.querySelector(`[data-note="${b.id}"]`),navigation=$('navigation').firstElementChild,filter=$('search-filters').firstElementChild;
+ document.querySelector(`[data-note="${a.id}"]`).dispatchEvent(new window.Event('click',{bubbles:true}));await until(()=>!$('editor-layer').hidden);input($('note-title'),'Cámara y sonido');await $('editor-close').onclick();
+ assert.equal(document.querySelector(`[data-note="${b.id}"]`),stable);assert.equal($('navigation').firstElementChild,navigation);
+ input($('search'),'camara');await until(()=>document.querySelectorAll('[data-note]').length===1);assert.equal(document.querySelector('[data-note]').dataset.note,a.id);input($('search'),'cámara');await until(()=>document.querySelectorAll('[data-note]').length===1);assert.equal($('search-filters').firstElementChild,filter);$('clear-search').onclick();await until(()=>document.querySelector(`[data-note="${b.id}"]`));
+});
+await test('remote attachment replacement invalidates cached previews including updates received while editing',async()=>{
+ document.querySelector('[data-route=notes]').dispatchEvent(new window.Event('click',{bubbles:true}));await until(()=>!$('composer').hidden);
+ await create('Archivos entre pestañas');const n=(await store.allNotes()).find(n=>n.title==='Archivos entre pestañas');
+ const attachment={id:'remote-preview',noteId:n.id,type:'application/pdf',name:'Original.pdf',blob:new Blob(['original'])};
+ await store.attachToNote({...n,attachments:[attachment.id]},attachment);channels[0].onmessage({data:{type:'attachment',id:attachment.id,noteId:n.id}});
+ await until(()=>document.querySelector(`[data-note="${n.id}"]`)?.textContent.includes('Original.pdf'));
+ const card=document.querySelector(`[data-note="${n.id}"]`);card.dispatchEvent(new window.Event('click',{bubbles:true}));await until(()=>$('editor-files').textContent.includes('Original.pdf'));
+ await store.putAttachment({...attachment,name:'Actualizado.pdf',blob:new Blob(['actualizado'])});channels[0].onmessage({data:{type:'attachment',id:attachment.id,noteId:n.id}});
+ assert.match($('editor-files').textContent,/Original.pdf/,'the active editor is left stable until close');
+ await $('editor-close').onclick();assert.match(document.querySelector(`[data-note="${n.id}"]`).textContent,/Actualizado.pdf/);
+});

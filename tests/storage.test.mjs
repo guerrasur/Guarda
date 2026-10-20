@@ -100,3 +100,13 @@ test('manual reordering commits all positions together and retains text, timesta
  await assert.rejects(store.reorderNotes([{id:'a',order:99},{id:'missing',order:98}]));assert.equal((await store.allNotes()).find(n=>n.id==='a').order,1,'failed reorder must roll back every position');
  const reopened=new GuardaStore({name:store.name,broadcast:false});t.after(()=>reopened.close());assert.equal((await reopened.allNotes()).find(n=>n.id==='b').order,2);
 });
+
+test('bulk saves commit once and failed writes roll back every selected note',async t=>{
+  const store=await open(t),a=note('a'),b=note('b');await store.putNotes([a,b]);
+  const revision=await store.getSetting('local-revision'),events=[];store.addEventListener('change',event=>events.push(event.detail));
+  await store.putNotes([{...a,pinned:true},{...b,pinned:true}]);
+  assert.equal(await store.getSetting('local-revision'),revision+1);assert.equal(events.length,1);assert.ok((await store.allNotes()).every(note=>note.pinned));
+  const invalid={...b,uncloneable:()=>{}};
+  await assert.rejects(store.putNotes([{...a,pinned:false},invalid]));
+  assert.ok((await store.allNotes()).every(note=>note.pinned));assert.equal(await store.getSetting('local-revision'),revision+1);assert.equal(events.length,1);
+});

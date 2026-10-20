@@ -102,6 +102,16 @@ export class GuardaStore extends EventTarget {
     validateNote(note);
     return this._run(['notes'], 'readwrite', tx => requestResult(tx.objectStore('notes').put(note)), { type: 'note', id: note.id });
   }
+  async putNotes(notes) {
+    assert(Array.isArray(notes), 'Las notas no son válidas.');
+    notes.forEach(validateNote);
+    assert(new Set(notes.map(note=>note.id)).size===notes.length, 'Hay notas repetidas.');
+    if(!notes.length)return;
+    return this._run(['notes'], 'readwrite', async tx=>{
+      const store=tx.objectStore('notes');
+      await Promise.all(notes.map(async note=>requestResult(store.put(note))));
+    }, {type:'notes',ids:notes.map(note=>note.id)});
+  }
   deleteNote(id) {
     return this._run(['notes', 'attachments'], 'readwrite', async tx => {
       const attachments = tx.objectStore('attachments');
@@ -145,6 +155,13 @@ export class GuardaStore extends EventTarget {
     }, { type: 'attachment', id: attachment.id, noteId: note.id });
   }
   getAttachment(id) { return this._run(['attachments'], 'readonly', tx => requestResult(tx.objectStore('attachments').get(id))); }
+  draftAttachments() {
+    return this._run(['attachments'], 'readonly', tx => new Promise((resolve,reject)=>{
+      const drafts=[],request=tx.objectStore('attachments').openCursor();
+      request.onerror=()=>reject(request.error);
+      request.onsuccess=()=>{const cursor=request.result;if(!cursor){resolve(drafts);return;}if(cursor.value.draft)drafts.push(cursor.value);cursor.continue();};
+    }));
+  }
   deleteAttachment(id) {
     return this._run(['notes', 'attachments'], 'readwrite', async tx => {
       const attachments = tx.objectStore('attachments');
