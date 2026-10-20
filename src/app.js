@@ -1,4 +1,4 @@
-import { LiveWaveform, validWaveform, waveformHTML, initPlaybackWaveforms } from './audio-waveform.js';
+import { LiveWaveform, initPlaybackWaveforms } from './audio-waveform.js';
 import { prepareRecording, decodeWaveform, audioExtension } from './audio-processing.js';
 import { attachmentType, isPreviewImage, formatBytes, validateFiles } from './attachments.js';
 import { initInstallState } from './installation.js';
@@ -57,7 +57,11 @@ async function saveAndRefresh(){await saveDraft();await refresh();}
 async function getAttachment(id){if(!attachmentCache.has(id)){const a=await store.getAttachment(id);if(a)attachmentCache.set(id,a);}return attachmentCache.get(id);}
 function objectURL(a){if(!urls.has(a.id))urls.set(a.id,URL.createObjectURL(a.blob));return urls.get(a.id);}
 function dropURL(id){playbackWaves?.clear(id);if(urls.has(id))URL.revokeObjectURL(urls.get(id));urls.delete(id);attachmentCache.delete(id);}
-function audioHTML(a,editable=false){return `<div class="audio-card" data-attachment="${esc(a.id)}"><div class="audio-heading">${icon('mic')}<span>${esc(a.name||'Grabación de audio')}</span>${a.duration?`<span>${formatTime(a.duration)}</span>`:''}<div class="audio-actions">${actionButton('download-audio','download','Descargar audio')}${editable?actionButton('delete-attachment','trash','Eliminar audio'):''}</div></div><div class="audio-waveform" data-waveform data-ready="${validWaveform(a.waveform)}" data-duration="${validWaveform(a.waveform)?a.waveform.duration:Number(a.duration)||0}" role="slider" tabindex="0" aria-label="Posición de reproducción" aria-valuemin="0" aria-valuemax="${validWaveform(a.waveform)?Math.round(a.waveform.duration):Math.round(Number(a.duration)||0)}" aria-valuenow="0">${waveformHTML(a.waveform)}</div><audio controls preload="metadata" playsinline src="${objectURL(a)}" aria-label="${esc(a.name||'Grabación de audio')}"></audio></div>`;}
+function audioHTML(a,editable=false){
+ const heading=`${icon('mic')}<span>${esc(a.name||'Grabación de audio')}</span>${a.duration?`<span>${formatTime(a.duration)}</span>`:''}`;
+ if(!editable)return `<div class="audio-preview" data-attachment="${esc(a.id)}">${heading}${actionButton('download-audio','download','Descargar audio')}</div>`;
+ return `<div class="audio-card" data-attachment="${esc(a.id)}"><div class="audio-heading">${heading}<div class="audio-actions">${actionButton('download-audio','download','Descargar audio')}${actionButton('delete-attachment','trash','Eliminar audio')}</div></div><div class="audio-waveform" hidden data-waveform data-ready="false" data-duration="${Number(a.duration)||0}" role="slider" tabindex="0" aria-label="Posición de reproducción" aria-valuemin="0" aria-valuemax="${Math.round(Number(a.duration)||0)}" aria-valuenow="0"></div><audio controls preload="none" playsinline src="${objectURL(a)}" aria-label="${esc(a.name||'Grabación de audio')}"></audio></div>`;
+}
 function fileHTML(a,editable=false){return `<div class="file-card" data-attachment="${esc(a.id)}">${icon('file')}<button class="file-details" data-action="download-file" aria-label="Descargar ${esc(a.name)}"><span>${esc(a.name||'Archivo adjunto')}</span><small>${formatBytes(a.blob.size)}</small></button>${actionButton('download-file','download','Descargar archivo')}${editable?actionButton('delete-attachment','trash','Eliminar archivo'):''}</div>`;}
 function formatTime(seconds){seconds=Math.max(0,Math.floor(seconds||0));return `${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}`;}
 function routeTitle(){if(route==='archive')return 'Archivo';if(route==='trash')return 'Papelera';if(route==='reminders')return 'Recordatorios';if(route.startsWith('label:'))return labels.find(l=>l.id===route.slice(6))?.name||'Etiqueta';return 'Notas';}
@@ -84,7 +88,8 @@ async function moveNote(sourceId,targetId,after=false){
 }
 async function renderBoard(){
  const token=++boardRender;const area=$('notes-area');
- for(const n of notes)for(const id of n.attachments)await getAttachment(id);
+ const missing=[...new Set(notes.flatMap(n=>n.attachments))].filter(id=>!attachmentCache.has(id));
+ for(let i=0;i<missing.length;i+=8){await Promise.all(missing.slice(i,i+8).map(getAttachment));if(token!==boardRender)return;}
  if(token!==boardRender)return;
  const list=filteredNotes();const pinned=list.filter(n=>n.pinned),other=list.filter(n=>!n.pinned);
  const group=(items,label)=>`${label?`<h2 class="notes-section-title">${label}</h2>`:''}<div class="notes-grid">${items.map(cardHTML).join('')}</div>`;
@@ -128,7 +133,7 @@ function closeEditor(){
 }
 async function finishCloseEditor(){if(attachmentTask)await attachmentTask.catch(()=>{});if(!editing)return true;if(stopTask){const saved=await stopTask;if(saved===false)return false;}if(recorder&&['recording','paused','stopping'].includes(recorder.state)){const saved=await stopRecording();if(saved===false||recorder?.state!=='idle')return false;}else if(recorder?.state==='requesting'){recorder.cancel();clearInterval(recordingTimer);$('record-panel').hidden=true;}
  try{await saveDraft();if(!hasContent(editing))await store.deleteNote(editing.id);}catch(e){showError(e);return false;}
- editing=null;editorRender++;hidePopover();$('editor-layer').hidden=true;document.body.classList.remove('editor-open');await refresh();if(lastFocus?.isConnected)lastFocus.focus();return true;}
+ for(const audio of $('editor-audios').querySelectorAll('audio'))audio.pause?.();$('editor-audios').replaceChildren();editing=null;editorRender++;hidePopover();$('editor-layer').hidden=true;document.body.classList.remove('editor-open');await refresh();if(lastFocus?.isConnected)lastFocus.focus();return true;}
 async function mutateNote(id,changes,{undoLabel}={}){const n=editing?.id===id?editing:clone(notes.find(n=>n.id===id));if(!n)return;const old=clone(n);Object.assign(n,changes,{updatedAt:now()});if(settings.updatedFirst!==false&&contentSignature(n)!==contentSignature(old))n.order=nextOrder();if(editing?.id===id){await saveDraft();renderEditor();}else await store.putNote(n);await refresh();if(undoLabel)toast(undoLabel,'Deshacer',async()=>{await store.putNote(old);if(editing?.id===id){editing=clone(old);renderEditor();}await refresh();});}
 async function trashNote(id){await mutateNote(id,{deletedAt:now()},{undoLabel:'Nota enviada a la papelera'});if(editing?.id===id)await closeEditor();selected.delete(id);}
 async function archiveNote(id){const n=editing?.id===id?editing:notes.find(n=>n.id===id);if(!n)return;await mutateNote(id,{archived:!n.archived},{undoLabel:n.archived?'Nota desarchivada':'Nota archivada'});if(editing?.id===id)await closeEditor();selected.delete(id);}

@@ -40,18 +40,18 @@ export class LiveWaveform{
  release(){this.setState('idle');try{this.source?.disconnect();this.analyser?.disconnect();}catch{}this.source=null;this.analyser=null;const context=this.context;this.context=null;try{context?.close?.().catch(()=>{});}catch{}}
 }
 export function initPlaybackWaveforms({getAttachment,decode,env=globalThis}){
- const document=env.document,cache=new Map();let frame=null;
+ const document=env.document,cache=new Map();let frame=null,active=null;
  function duration(audio,wave){return Number.isFinite(audio.duration)&&audio.duration>0?audio.duration:Number(wave.dataset.duration)||0;}
  function progress(audio){const wave=audio.closest('.audio-card')?.querySelector('[data-waveform]');if(!wave)return;const total=duration(audio,wave),time=Number(audio.currentTime)||0,ratio=total?Math.max(0,Math.min(1,time/total)):0;wave.style.setProperty('--audio-progress',ratio*100+'%');wave.setAttribute('aria-valuemax',String(Math.round(total)));wave.setAttribute('aria-valuenow',String(Math.round(time)));}
- function animate(){frame=null;const active=[...document.querySelectorAll('.audio-card audio')].filter(a=>a.paused===false);for(const audio of active)progress(audio);if(active.length&&env.requestAnimationFrame)frame=env.requestAnimationFrame(animate);}
+ function animate(){frame=null;if(!active?.isConnected||active.paused!==false){active=null;return;}progress(active);if(env.requestAnimationFrame)frame=env.requestAnimationFrame(animate);}
  async function ensure(audio){
   const card=audio.closest('.audio-card'),wave=card?.querySelector('[data-waveform]');if(!wave||wave.dataset.ready==='true')return;
-  const id=card.dataset.attachment;if(!cache.has(id))cache.set(id,Promise.resolve(getAttachment(id)).then(a=>a?decode(a.blob):null).catch(()=>null));
-  wave.setAttribute('aria-busy','true');const value=await cache.get(id);if(!wave.isConnected)return;wave.removeAttribute('aria-busy');
+  const id=card.dataset.attachment;if(!cache.has(id))cache.set(id,Promise.resolve(getAttachment(id)).then(a=>validWaveform(a?.waveform)?a.waveform:a?decode(a.blob):null).catch(()=>null));
+  wave.hidden=false;wave.setAttribute('aria-busy','true');const value=await cache.get(id);if(!wave.isConnected)return;wave.removeAttribute('aria-busy');
   if(validWaveform(value)){wave.innerHTML=waveformHTML(value);wave.dataset.ready='true';wave.dataset.duration=String(value.duration);progress(audio);}else wave.innerHTML='<span class="wave-placeholder">Onda no disponible para este formato</span>';
  }
- document.addEventListener('play',event=>{const audio=event.target;if(!audio.matches?.('.audio-card audio'))return;for(const other of document.querySelectorAll('.audio-card audio'))if(other!==audio&&other.paused===false)other.pause();ensure(audio);progress(audio);if(!frame&&env.requestAnimationFrame)frame=env.requestAnimationFrame(animate);},true);
- for(const type of ['timeupdate','loadedmetadata','seeked','ended','pause'])document.addEventListener(type,event=>{if(event.target.matches?.('.audio-card audio'))progress(event.target);},true);
+ document.addEventListener('play',event=>{const audio=event.target;if(!audio.matches?.('.audio-card audio'))return;for(const other of document.querySelectorAll('.audio-card audio'))if(other!==audio&&other.paused===false)other.pause();active=audio;ensure(audio);progress(audio);if(!frame&&env.requestAnimationFrame)frame=env.requestAnimationFrame(animate);},true);
+ for(const type of ['timeupdate','loadedmetadata','seeked','ended','pause'])document.addEventListener(type,event=>{if(event.target.matches?.('.audio-card audio')){progress(event.target);if(event.target===active&&active.paused!==false){active=null;if(frame)env.cancelAnimationFrame?.(frame);frame=null;}}},true);
  function seek(wave,fraction){const audio=wave.closest('.audio-card')?.querySelector('audio');if(!audio)return;const total=duration(audio,wave);if(total)try{audio.currentTime=Math.max(0,Math.min(total,fraction*total));progress(audio);}catch{}}
  document.addEventListener('click',event=>{const wave=event.target.closest?.('[data-waveform]');if(!wave)return;event.stopPropagation();const rect=wave.getBoundingClientRect();if(rect.width)seek(wave,(event.clientX-rect.left)/rect.width);});
  document.addEventListener('keydown',event=>{const wave=event.target.closest?.('[data-waveform]');if(!wave||!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();const audio=wave.closest('.audio-card')?.querySelector('audio');const total=audio?duration(audio,wave):0;if(!total)return;const next=event.key==='Home'?0:event.key==='End'?total:(audio.currentTime||0)+(event.key==='ArrowRight'?5:-5);seek(wave,next/total);});
