@@ -4,7 +4,7 @@ import { APP_VERSION } from '../src/version.js';
 await rm('dist',{recursive:true,force:true});await mkdir('dist',{recursive:true});
 await cp('public','dist',{recursive:true});await cp('src','dist/src',{recursive:true});
 for(const f of ['index.html','manifest.webmanifest','sw.js'])await cp(f,`dist/${f}`);
-const shell=['index.html','src/app.js','src/keep-ui.js','src/keep-import.js','src/vendor/fflate.js','src/drive-config.js','src/cloud-merge.js','src/drive-client.js','src/drive-sync.js','src/drive-ui.js','src/styles.css','src/icons.js','src/storage.js','src/recorder.js','src/viewport.js','src/note-drag.js','src/updater.js','src/version.js','src/profile.js','avatars/clover.png','avatars/fern.png','avatars/thistle.png','manifest.webmanifest','guardia-icon.png','favicon.ico','favicon-16x16.png','favicon-32x32.png','apple-touch-icon.png','icon-192.png','icon-512.png'];
+const shell=['index.html','src/app.js','src/keep-ui.js','src/keep-import.js','src/vendor/fflate.js','src/drive-config.js','src/cloud-merge.js','src/drive-client.js','src/drive-sync.js','src/drive-ui.js','src/styles.css','src/icons.js','src/storage.js','src/recorder.js','src/viewport.js','src/note-drag.js','src/updater.js','src/version.js','src/profile.js','src/theme.js','avatars/clover.png','avatars/fern.png','avatars/thistle.png','manifest.webmanifest','guardia-icon.png','favicon.ico','favicon-16x16.png','favicon-32x32.png','apple-touch-icon.png','icon-192.png','icon-512.png'];
 // Version every script/style reference, including transitive imports. Old caches
 // cannot provide modules from a different release during the first migration.
 for(const f of shell.filter(f=>/\.(html|js)$/.test(f))){

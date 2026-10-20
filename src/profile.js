@@ -7,6 +7,11 @@ export function driveDescription(info){
 }
 export function initProfile({store,drive,utility,closeUtility,showError,env=globalThis}){
  const $=id=>env.document.getElementById(id);let selected='clover',renderVersion=0;
+ // Recover a legacy header left behind by an older cached document.
+ const avatar=$('local-info');let image=$('profile-image');
+ if(!image){image=avatar.querySelector('img')||env.document.createElement('img');image.id='profile-image';image.alt='';if(!image.parentNode)avatar.append(image);}
+ let ring=$('drive-indicator');if(!ring){ring=env.document.createElement('span');ring.id='drive-indicator';ring.hidden=true;}
+ ring.className='profile-ring';ring.setAttribute('role','status');ring.setAttribute('aria-live','polite');ring.textContent='';avatar.prepend(ring);avatar.setAttribute('aria-label','Perfil y Google Drive');
  async function render(){
   const version=++renderVersion;const value=await store.getSetting('profile-avatar','clover');if(version!==renderVersion)return;
   selected=plants.some(([id])=>id===value)?value:'clover';

@@ -12,3 +12,9 @@ test('profile choices persist, survive reopening and never show the disconnected
 test('storage explanation distinguishes disconnected, pending, failed and fully saved Drive',()=>{
  assert.match(driveDescription(),/Podés conectar/);assert.match(driveDescription({enabled:true}),/Reconectala/);assert.match(driveDescription({connected:true,state:'pending'}),/cambios por sincronizar/);assert.match(driveDescription({connected:true,state:'error'}),/No se pudo completar/);assert.match(driveDescription({connected:true,state:'synced'}),/Todo guardado/);
 });
+
+test('legacy cached header is repaired before reading the selected avatar',async()=>{
+ const {document}=parseHTML('<html><body><div><button id="drive-indicator" class="drive-indicator">!</button><button id="local-info"><img src="./guardia-icon.png"></button></div><div id="panel"></div></body></html>');
+ const ui=initProfile({store:{getSetting:async()=> 'fern',addEventListener(){}},drive:{getState:()=>({connected:true,state:'synced'})},env:{document},utility:(_,html)=>document.getElementById('panel').innerHTML=html,closeUtility(){},showError:e=>{throw e;}});
+ await ui.open();assert.equal(document.getElementById('profile-image').getAttribute('src'),'./avatars/fern.png');assert.equal(document.getElementById('drive-indicator').parentNode.id,'local-info');assert.equal(document.getElementById('drive-indicator').className,'profile-ring');assert.equal(document.getElementById('drive-indicator').textContent,'');assert.equal(document.querySelectorAll('#drive-indicator').length,1);
+});
