@@ -1,11 +1,11 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {parseHTML} from 'linkedom';import {initDrive} from '../src/drive-ui.js';import {DriveSync} from '../src/drive-sync.js';import {DRIVE_SCOPE} from '../src/drive-client.js';
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
 function fixture(saved){
- const {document,window}=parseHTML('<html><body><button id="drive-indicator" hidden></button><div id="panel"></div></body></html>');const values=new Map(Object.entries(saved));const requests=[];let config,fail=false;
+ const {document,window}=parseHTML('<html><body><button id="drive-indicator" hidden></button><div id="panel"></div></body></html>');const values=new Map(Object.entries(saved));const requests=[];let config,fail=false,onChange;
  const env={document,window,AbortController,setTimeout,clearTimeout,setInterval:()=>0,fetch:async()=>Response.json({user:{permissionId:'owner',emailAddress:'owner@example.test'}}),google:{accounts:{oauth2:{hasGrantedAllScopes:r=>r.scope===DRIVE_SCOPE,initTokenClient:cfg=>{if(fail)throw Error('Google no disponible');config=cfg;return {requestAccessToken:options=>{requests.push(options);queueMicrotask(()=>cfg.callback({access_token:'token',scope:DRIVE_SCOPE,expires_in:3600}));}};}}}}};
- const store={getSetting:async(k,fallback)=>values.has(k)?values.get(k):fallback,setSetting:async(k,v)=>values.set(k,v),addEventListener(){}};
+ const store={getSetting:async(k,fallback)=>values.has(k)?values.get(k):fallback,setSetting:async(k,v)=>values.set(k,v),addEventListener:(_,fn)=>onChange=fn};
  const errors=[];const ui=initDrive({store,env,isBusy:()=>false,onApplied:async()=>{},utility:(_,html)=>document.getElementById('panel').innerHTML=html,closeUtility(){},showError:e=>errors.push(e)});
- return {ui,document,values,requests,errors,fail:value=>fail=value,config:()=>config};
+ return {ui,document,values,requests,errors,fail:value=>fail=value,config:()=>config,change:()=>onChange({detail:{type:'note',id:'note'}})};
 }
 test('previously linked Drive shows reconnect after reload, renews with account hint and remembers explicit disconnect',async()=>{
  const original=DriveSync.prototype.sync;DriveSync.prototype.sync=async()=>({});
@@ -20,4 +20,16 @@ test('failed Google initialization leaves a usable retry button without opening 
 });
 test('legacy bound accounts are recognized after reload without storing access tokens',async()=>{
  const f=fixture({'drive-bound-account':'owner'});await settle();assert.equal(f.document.getElementById('drive-indicator').hidden,false);await f.ui.open();await settle();assert.match(f.document.getElementById('drive-connect').textContent,/Reconectar/);assert.equal(f.requests.length,0);
+});
+
+test('profile ring clears green for pending edits and never reports an in-flight stale snapshot as saved',async()=>{
+ const original=DriveSync.prototype.sync;let finish;DriveSync.prototype.sync=()=>new Promise(resolve=>finish=resolve);
+ try{
+  const f=fixture({});await f.ui.open();await settle();f.document.getElementById('drive-connect').onclick();await settle();await settle();
+  const badge=f.document.getElementById('drive-indicator');assert.equal(badge.dataset.state,'syncing');assert.equal(f.ui.getState().connected,true);
+  f.change();assert.equal(badge.dataset.state,'pending');finish({});await settle();assert.equal(badge.dataset.state,'pending');
+  const saved=f.ui.sync();assert.equal(badge.dataset.state,'syncing');finish({});await saved;assert.equal(badge.dataset.state,'synced');assert.equal(badge.textContent,'');
+  f.ui.markPending();assert.equal(badge.dataset.state,'pending');
+  await f.ui.open();await settle();await f.document.getElementById('drive-disconnect').onclick();assert.equal(f.ui.getState().enabled,false);
+ }finally{DriveSync.prototype.sync=original;}
 });
