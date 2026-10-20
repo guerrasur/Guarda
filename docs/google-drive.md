@@ -20,7 +20,7 @@ Antes de abrir la app al público, revisar los requisitos de Branding/verificaci
 
 Cada persona toca Conectar Google Drive, elige **su propia cuenta** y acepta el permiso de los archivos de Guarda. Los datos consumen el almacenamiento de esa cuenta. Los límites de solicitudes de la API corresponden al proyecto de la aplicación. No se ha habilitado facturación desde la app.
 
-Los tokens de acceso solo viven en memoria. Al recargar o vencer la sesión, Guarda conserva la indicación de cuenta vinculada y muestra el círculo de reconexión en el encabezado. Desde el perfil se puede tocar Reconectar Google Drive directamente; la librería de Google se prepara sin abrir ventanas por sí sola, usando como sugerencia la cuenta anterior. La solicitud se inicia desde el toque explícito, como exige el modelo de tokens de Google. Esto evita almacenar credenciales y funciona sin un backend para renovar sesiones. Desconectar deja las notas locales y los archivos remotos; el permiso también puede revocarse en la cuenta de Google. Se impide cambiar la cuenta vinculada a las notas locales para evitar mezclas: usar otro perfil/navegador para una segunda cuenta.
+Los tokens de acceso solo viven en memoria. Desde v0.6.12, antes de recargar por una actualización, Guarda intenta terminar los cambios pendientes y entregar la sesión válida al nuevo service worker. La nueva página la recupera una sola vez y comprueba la cuenta con Google antes de sincronizar. El traspaso vence a los 60 segundos, queda separado por pestaña y no escribe tokens en IndexedDB, localStorage, sessionStorage, cachés ni copias. Si el navegador termina el worker, el token vence o Google revoca el acceso, se conserva la cuenta vinculada y aparece la reconexión. Desde el perfil se puede tocar Reconectar Google Drive directamente; la librería de Google se prepara sin abrir ventanas por sí sola, usando como sugerencia la cuenta anterior. La solicitud se inicia desde el toque explícito, como exige el modelo de tokens de Google. Esto evita almacenar credenciales y funciona sin un backend para renovar sesiones. Desconectar deja las notas locales y los archivos remotos; el permiso también puede revocarse en la cuenta de Google. Se impide cambiar la cuenta vinculada a las notas locales para evitar mezclas: usar otro perfil/navegador para una segunda cuenta.
 
 Sincroniza tras cambios guardados (con una breve espera), cada minuto con la app visible, al volver y al recuperar conexión, siempre que haya sesión válida y no se esté editando, grabando o reproduciendo. Sin sesión/internet sigue el guardado local. Incluye notas, listas, etiquetas, orden, papelera y archivos. Apariencia y demás preferencias son propias de cada dispositivo.
 
@@ -51,3 +51,35 @@ La migración reutiliza y renombra la carpeta anterior marcada por Guarda, o uti
 Los intentos simultáneos comparten una sola sincronización. Las operaciones de edición posponen la aplicación de cambios hasta volver a un estado seguro, sin consultas continuas mientras se lee una nota. Al cerrar notas o diálogos y terminar la reproducción se reanuda el guardado. Los cortes de conexión y fallos temporales (incluidos los límites de solicitudes) conservan la sesión y reintentan con espera creciente; los errores de permisos y de cuota se muestran por separado. Los controles se actualizan al terminar una subida.
 
 Si existen varias copias de estado del mismo dispositivo, se combinan con las mismas reglas de conflictos y se actualiza una copia canónica; las copias anteriores se conservan, sin bloquear la sincronización ni eliminar información.
+
+
+## Continuidad entre versiones (v0.6.12)
+
+La primera actualización desde v0.6.11 todavía necesita una reconexión: esa
+versión anterior no implementa el traspaso. Después, las actualizaciones
+controladas por Guarda intentan conservar el acceso temporal vigente. Una
+recarga manual, cerrar la app, reiniciar el navegador o la terminación del
+worker no garantizan la continuidad. Esto no extiende la duración del token ni
+renueva permisos sin intervención.
+
+Se usa `login_hint`, el parámetro documentado por Google, para sugerir la cuenta
+vinculada. Las nuevas autorizaciones siguen iniciándose desde un toque explícito;
+no se abren ventanas automáticamente al volver a la app. La preparación de la
+librería comparte una sola promesa para evitar estados prematuros y duplicados.
+
+Si la red falla después del consentimiento, se conserva el token en memoria
+como identidad pendiente y se reintenta comprobar la cuenta sin volver a pedir
+OAuth. Hasta comprobarla, no se suben ni descargan notas. Un 401 tardío de una
+petición anterior no invalida una autorización más nueva. Los errores de permisos,
+cuota, sesión y red mantienen tratamientos separados.
+
+Las pruebas simulan el worker, el cambio de controlador, dos instancias de la
+app, OAuth y la API. Comprueban actualización→traspaso→recarga→identificación→sync
+sin un segundo popup, expiración/terminación del worker, aislamiento de cuentas,
+consumo único y desconexión explícita. No acreditan una autorización real en
+Safari ni la continuidad en un iPhone físico.
+
+Una sesión duradera con renovación automática aun después de cerrar la app
+requiere otra arquitectura: flujo de código con backend y refresh tokens
+protegidos. No se incorporan secretos al frontend ni infraestructura de terceros.
+Referencia: https://developers.google.com/identity/oauth2/web/guides/use-code-model

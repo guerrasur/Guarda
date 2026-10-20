@@ -3,14 +3,36 @@ const driveError=(message,code,extra={})=>Object.assign(new Error(message),{code
 export function driveFolderName(user){const username=(user?.emailAddress?.split('@')[0]||user?.permissionId||'usuario').replace(/[\\/:*?"<>|]/g,'-').slice(0,120);return 'GuardaNotes-'+username;}
 const API='https://www.googleapis.com/drive/v3/';
 export class DriveClient{
- constructor({env=globalThis,onStatus=()=>{}}={}){this.env=env;this.onStatus=onStatus;this.token=null;this.expires=0;this.user=null;this.oauth=null;this.pending=null;this.folder=null;}
+ constructor({env=globalThis,onStatus=()=>{}}={}){this.env=env;this.onStatus=onStatus;this.token=null;this.expires=0;this.user=null;this.oauth=null;this.pending=null;this.folder=null;this.identityVerified=false;}
  get folderName(){return driveFolderName(this.user);}
- get connected(){return !this.pending&&!!this.token&&Date.now()<this.expires&&!!this.user;}
+ get hasToken(){return !!this.token&&Date.now()<this.expires;}
+ get connected(){return !this.pending&&this.hasToken&&!!this.user&&this.identityVerified;}
+ session(clientId){return this.connected?{token:this.token,expires:this.expires,user:{...this.user},clientId}:null;}
+ async restoreSession(session,{clientId,accountId}={}){
+  if(!session||session.clientId!==clientId||!accountId||session.user?.permissionId!==accountId||typeof session.token!=='string'||!session.token||!Number.isFinite(session.expires)||session.expires<=Date.now()+15000)return false;
+  this.token=session.token;this.expires=session.expires;this.identityVerified=false;
+  await this.identify(accountId);return true;
+ }
+ async identify(accountId){
+  const token=this.token;
+  const data=await this.request('about?fields=user(permissionId,emailAddress,displayName),storageQuota');
+  if(token!==this.token)throw driveError('La sesión cambió durante la conexión. Reintentá.','DRIVE_RETRYABLE');
+  if(!data.user?.permissionId)throw driveError('Google no devolvió la cuenta. Se reintentará sin volver a pedir acceso.','DRIVE_RETRYABLE');
+  if(accountId&&data.user.permissionId!==accountId){this.disconnect();throw driveError('Estas notas están vinculadas a otra cuenta. Reconectá la cuenta anterior para evitar mezclarlas.','DRIVE_ACCOUNT');}
+  this.user=data.user;this.identityVerified=true;this.folder=null;return this.user;
+ }
  async prepare(clientId){
   if(!/^\d+-[a-zA-Z0-9_-]+\.apps\.googleusercontent\.com$/.test(clientId))throw Error('Falta el ID de cliente OAuth de Guarda.');
   if(!this.env.google?.accounts?.oauth2){
-   if(!this.loading)this.loading=new Promise((resolve,reject)=>{const script=this.env.document.createElement('script');script.src='https://accounts.google.com/gsi/client';script.async=true;const timer=this.env.setTimeout(()=>{script.remove();this.loading=null;reject(Error('No se pudo cargar la conexión con Google. Revisá internet.'));},20000);script.onload=()=>{this.env.clearTimeout(timer);resolve();};script.onerror=()=>{this.env.clearTimeout(timer);script.remove();this.loading=null;reject(Error('No se pudo cargar la conexión con Google.'));};this.env.document.head.append(script);});
-   await this.loading;
+   if(!this.loading)this.loading=new Promise((resolve,reject)=>{
+    const script=this.env.document.createElement('script');script.src='https://accounts.google.com/gsi/client';script.async=true;let done=false;
+    const finish=error=>{if(done)return;done=true;this.env.clearTimeout(timer);if(error){script.remove();reject(error);}else resolve();};
+    const timer=this.env.setTimeout(()=>finish(Error('No se pudo cargar la conexión con Google. Revisá internet y reintentá.')),20000);
+    script.onload=()=>finish(this.env.google?.accounts?.oauth2?null:Error('Google no pudo inicializarse. Revisá la conexión y reintentá.'));
+    script.onerror=()=>finish(Error('No se pudo cargar la conexión con Google. Revisá internet y reintentá.'));
+    this.env.document.head.append(script);
+   });
+   const loading=this.loading;try{await loading;}finally{if(this.loading===loading)this.loading=null;}
   }
   this.oauthConfig={client_id:clientId,scope:DRIVE_SCOPE,include_granted_scopes:false};
   this.oauth=this.env.google.accounts.oauth2.initTokenClient({...this.oauthConfig,callback:()=>{}});
@@ -28,7 +50,7 @@ export class DriveClient{
    try{
     // A fresh callback per attempt prevents a late popup from reviving a cancelled session.
     this.oauth=this.env.google.accounts.oauth2.initTokenClient({...this.oauthConfig,callback:response=>this.finishAuthorization(response,pending),error_callback:error=>this.rejectAuthorization(Error(error?.type==='popup_failed_to_open'?'No se pudo abrir Google. Permití las ventanas emergentes o abrí Guarda en Safari o Chrome y reintentá.':'Se cerró la ventana de Google. Podés volver a conectar.'),pending)});
-    this.oauth.requestAccessToken({prompt:selectAccount||!hint?'select_account':'',...(hint?{hint}:{})});
+    this.oauth.requestAccessToken({prompt:selectAccount||!hint?'select_account':'',...(hint?{login_hint:hint}:{})});
    }catch(error){this.rejectAuthorization(error,pending);}
   });
  }
@@ -37,23 +59,22 @@ export class DriveClient{
   this.env.clearTimeout(pending.timer);
   try{
    if(response.error||!response.access_token||!this.env.google.accounts.oauth2.hasGrantedAllScopes(response,DRIVE_SCOPE))throw Error(response.error==='access_denied'?'Google no autorizó la conexión. Reintentá con la cuenta vinculada; si aparece Error 403 access_denied, esa cuenta debe estar habilitada en el proyecto de Google.':'No se autorizó el acceso a los archivos de Guarda en Drive.');
-   this.token=response.access_token;this.expires=Date.now()+Math.max(0,Number(response.expires_in||0)-60)*1000;
-   const data=await this.request('about?fields=user(permissionId,emailAddress,displayName),storageQuota');
+   this.token=response.access_token;this.expires=Date.now()+Math.max(0,Number(response.expires_in||0)-60)*1000;this.identityVerified=false;
+   const user=await this.identify();
    if(pending!==this.pending)return;
-   if(!data.user?.permissionId)throw Error('No se pudo identificar la cuenta de Drive.');
-   this.user=data.user;this.folder=null;this.pending=null;pending.resolve(data.user);
-  }catch(error){if(pending!==this.pending)return;this.expire();this.rejectAuthorization(error,pending);}
+   this.pending=null;pending.resolve(user);
+  }catch(error){if(pending!==this.pending)return;if(error.code!=='DRIVE_RETRYABLE'&&!this.identityVerified)this.expire();this.rejectAuthorization(error,pending);}
  }
- expire(){this.token=null;this.expires=0;}
+ expire(){this.token=null;this.expires=0;this.identityVerified=false;}
  disconnect(){this.expire();this.user=null;this.folder=null;this.rejectAuthorization(Error('Conexión cancelada. Podés volver a conectar.'));}
  async request(path,{method='GET',body,headers={},raw=false}={}){
   if(!this.token||Date.now()>=this.expires){this.expire();throw driveError('La sesión de Drive venció. Tocá Reconectar para renovarla; tus notas siguen guardadas localmente.','DRIVE_AUTH');}
   const url=path.startsWith('https://')?path:API+path;
   if(!url.startsWith(API)&&!url.startsWith('https://www.googleapis.com/upload/drive/v3/'))throw Error('Dirección de Drive no válida.');
-  const controller=new this.env.AbortController(),timer=this.env.setTimeout(()=>controller.abort(),120000);
+  const token=this.token;const controller=new this.env.AbortController(),timer=this.env.setTimeout(()=>controller.abort(),120000);
   try{
-   const response=await this.env.fetch(url,{method,headers:{...headers,Authorization:'Bearer '+this.token},body,signal:controller.signal,cache:'no-store'});
-   if(response.status===401){this.expire();throw driveError('La sesión de Drive venció. Volvé a conectar tu cuenta.','DRIVE_AUTH');}
+   const response=await this.env.fetch(url,{method,headers:{...headers,Authorization:'Bearer '+token},body,signal:controller.signal,cache:'no-store'});
+   if(response.status===401){if(token!==this.token)throw driveError('La sesión anterior venció. Se reintentará con la conexión actual.','DRIVE_RETRYABLE');this.expire();throw driveError('La sesión de Drive venció. Volvé a conectar tu cuenta.','DRIVE_AUTH');}
    if(!response.ok){let reason='';try{reason=(await response.json()).error?.errors?.[0]?.reason||'';}catch{}
     if(reason==='storageQuotaExceeded')throw Error('Tu cuenta de Drive no tiene espacio disponible. Tus cambios siguen guardados localmente.');
     if(response.status===429||response.status>=500||['rateLimitExceeded','userRateLimitExceeded','backendError'].includes(reason))throw driveError('Drive está ocupado. Se reintentará automáticamente; tus cambios siguen guardados en este dispositivo.','DRIVE_RETRYABLE',{retryAfterMs:Math.min(300000,Math.max(0,Number(response.headers.get('Retry-After'))||0)*1000)});

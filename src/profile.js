@@ -2,7 +2,7 @@ const plants=[['clover','Trébol'],['fern','Helecho'],['thistle','Cardo']];
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function driveDescription(info){
  if(info?.state==='offline')return 'Sin conexión a internet. Tus cambios están guardados en este dispositivo y se enviarán cuando vuelva la conexión.';
- if(info?.state==='connecting')return 'Esperando autorización de Google…';
+ if(info?.state==='connecting')return info.message||'Esperando autorización de Google…';
  if(info?.connected)return info.state==='synced'?'Todo guardado en Google Drive. También tenés una copia local para usar sin conexión.':info.state==='error'?'No se pudo completar el guardado en Drive. Tus cambios se conservan en este dispositivo.':'Google Drive conectado. Hay cambios por sincronizar; se conservan en este dispositivo hasta completar el guardado.';
  if(info?.enabled)return 'Tu cuenta de Drive está vinculada. Reconectala para continuar la sincronización. Tus notas se conservan en este dispositivo.';
  return 'Tus notas se guardan en este dispositivo. Podés conectar Google Drive para sincronizarlas y exportar una copia desde Configuración.';

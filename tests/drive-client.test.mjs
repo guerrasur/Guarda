@@ -47,3 +47,27 @@ test('a new dedicated folder is created once and an existing canonical folder wi
 test('renewing authorization blocks synchronization with the previous account until identity is verified',async()=>{
  const f=setup();await f.client.prepare(id);await f.client.connect();let release;f.fetch(()=>new Promise(resolve=>release=resolve));const renewal=f.client.connect({hint:'owner@example.test'});await new Promise(resolve=>setImmediate(resolve));assert.equal(f.client.connected,false);release(Response.json({user:{permissionId:'owner',emailAddress:'owner@example.test'}}));await renewal;assert.equal(f.client.connected,true);
 });
+
+test('an interrupted account lookup retains the authorized token and retries identity without OAuth',async()=>{
+ const f=setup();await f.client.prepare(id);f.fetch(async()=>{throw new TypeError('Network interrupted');});
+ await assert.rejects(f.client.connect(),error=>error.code==='DRIVE_RETRYABLE');assert.equal(f.client.hasToken,true);assert.equal(f.client.connected,false);
+ f.fetch(async()=>Response.json({user:{permissionId:'owner',emailAddress:'owner@example.test'}}));await f.client.identify('owner');assert.equal(f.client.connected,true);
+});
+test('restored sessions must match both OAuth client and linked account before sending a token',async()=>{
+ const f=setup(),snapshot={token:'handoff-token',expires:Date.now()+3500000,clientId:id,user:{permissionId:'owner'}};
+ assert.equal(await f.client.restoreSession(snapshot,{clientId:'other-client',accountId:'owner'}),false);
+ assert.equal(await f.client.restoreSession(snapshot,{clientId:id,accountId:'other-account'}),false);assert.equal(f.requests.length,0);
+ assert.equal(await f.client.restoreSession(snapshot,{clientId:id,accountId:'owner'}),true);assert.equal(f.client.connected,true);assert.equal(f.requests[0].options.headers.Authorization,'Bearer handoff-token');
+ f.fetch(async()=>Response.json({user:{permissionId:'wrong-account'}}));await assert.rejects(f.client.restoreSession(snapshot,{clientId:id,accountId:'owner'}),error=>error.code==='DRIVE_ACCOUNT');assert.equal(f.client.token,null);
+});
+test('a late unauthorized response from an old token cannot disconnect a newer session',async()=>{
+ const f=setup();await f.client.prepare(id);await f.client.connect();let release;
+ f.fetch(()=>new Promise(resolve=>release=resolve));const pending=f.client.listSnapshots();f.client.token='renewed-token';release(new Response(null,{status:401}));
+ await assert.rejects(pending,error=>error.code==='DRIVE_RETRYABLE');assert.equal(f.client.token,'renewed-token');assert.equal(f.client.connected,true);
+});
+test('a script that loads without initializing Google can be loaded again on retry',async()=>{
+ const f=setup(),env=f.client.env,google=env.google,scripts=[];delete env.google;
+ env.document={createElement:()=>({remove(){}}),head:{append:script=>scripts.push(script)}};
+ const failed=f.client.prepare(id);scripts[0].onload();await assert.rejects(failed,/inicializarse/);assert.equal(f.client.loading,null);
+ const retry=f.client.prepare(id);assert.equal(scripts.length,2);env.google=google;scripts[1].onload();await retry;assert.ok(f.client.oauth);assert.equal(f.client.loading,null);
+});

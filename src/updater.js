@@ -6,7 +6,7 @@ export function newer(candidate,current){
  for(let i=0;i<3;i++)if(a[i]!==b[i])return a[i]>b[i];
  return false;
 }
-export function initUpdater(current,{isBusy=()=>false,saveState=async()=>{},env=globalThis}={}){
+export function initUpdater(current,{isBusy=()=>false,saveState=async()=>{},beforeReload=async()=>{},env=globalThis}={}){
  const {document,window,navigator,location,sessionStorage}=env;
  const message=document.getElementById('update-status'),button=document.getElementById('update');
  document.getElementById('version').textContent=`v${current}`;
@@ -22,7 +22,7 @@ export function initUpdater(current,{isBusy=()=>false,saveState=async()=>{},env=
   applying=true;
   try{
    await saveState();if(isBusy())return;
-   if(changed){reloading=true;const url=new URL(location.href);if(available)url.searchParams.set('v',available.version);location.replace(url.href);return;}
+   if(changed){await beforeReload();if(isBusy())return;reloading=true;const url=new URL(location.href);if(available)url.searchParams.set('v',available.version);location.replace(url.href);return;}
    if(read()===available.version){say('La nueva versión todavía se está publicando. Volvé a actualizar en unos momentos.');return;}
    const worker=registration?.waiting;if(!worker)return;
    const info=await new Promise((resolve,reject)=>{

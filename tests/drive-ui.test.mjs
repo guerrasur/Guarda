@@ -1,4 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {parseHTML} from 'linkedom';import {initDrive} from '../src/drive-ui.js';import {DriveSync,SyncDeferredError} from '../src/drive-sync.js';import {DRIVE_SCOPE} from '../src/drive-client.js';
+import {DriveSessionBridge} from '../src/drive-session.js';import {GOOGLE_CLIENT_ID} from '../src/drive-config.js';
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
 function fixture(saved){
  const {document,window}=parseHTML('<html><body><button id="drive-indicator" hidden></button><div id="panel"></div></body></html>');const values=new Map(Object.entries(saved));const requests=[];let config,fail=false,onChange,busy=false,retry,retryDelay;
@@ -11,7 +12,7 @@ test('previously linked Drive shows reconnect after reload, renews with account 
  const original=DriveSync.prototype.sync;DriveSync.prototype.sync=async()=>({});
  try{
  const f=fixture({'drive-bound-account':'owner','drive-connection':{enabled:true,user:{permissionId:'owner',emailAddress:'owner@example.test'}}});await settle();const badge=f.document.getElementById('drive-indicator');assert.equal(badge.hidden,false);assert.equal(badge.dataset.state,'reconnect');assert.equal(f.requests.length,0);
- await f.ui.open();await settle();const connect=f.document.getElementById('drive-connect');assert.match(connect.textContent,/Reconectar/);connect.onclick();await settle();await settle();assert.deepEqual(f.requests,[{prompt:'',hint:'owner@example.test'}]);assert.equal(badge.dataset.state,'synced');assert.equal(f.values.get('drive-connection').enabled,true);
+ await f.ui.open();await settle();const connect=f.document.getElementById('drive-connect');assert.match(connect.textContent,/Reconectar/);connect.onclick();await settle();await settle();assert.deepEqual(f.requests,[{prompt:'',login_hint:'owner@example.test'}]);assert.equal(badge.dataset.state,'synced');assert.equal(f.values.get('drive-connection').enabled,true);
  await f.ui.open();await settle();await f.document.getElementById('drive-disconnect').onclick();assert.equal(badge.hidden,true);assert.equal(f.values.get('drive-connection').enabled,false);
  }finally{DriveSync.prototype.sync=original;}
 });
@@ -87,4 +88,37 @@ test('reading a note pauses retries until resume and local appearance settings d
   f.setBusy(true);await f.ui.sync();assert.equal(f.hasRetry,false);const before=calls;f.setBusy(false);f.ui.resume();await f.retry();assert.equal(calls,before+1);assert.equal(f.ui.getState().state,'synced');
   await f.ui.open();await settle();await f.document.getElementById('drive-disconnect').onclick();
  }finally{DriveSync.prototype.sync=original;}
+});
+
+test('updating hands off the verified session, flushes pending edits and restores without another OAuth prompt',async()=>{
+ const originalSync=DriveSync.prototype.sync,originalTake=DriveSessionBridge.prototype.take,originalOffer=DriveSessionBridge.prototype.offer;
+ let handoff=null,calls=0;DriveSync.prototype.sync=async()=>{calls++;return {};};DriveSessionBridge.prototype.take=async()=>{const session=handoff;handoff=null;return session;};DriveSessionBridge.prototype.offer=async session=>{handoff=structuredClone(session);return true;};
+ try{
+  const first=fixture({});await first.ui.open();await settle();await first.ui.connect();assert.equal(first.requests.length,1);
+  first.change();const before=calls;assert.equal(await first.ui.prepareReload(),true);assert.equal(calls,before+1);assert.equal(handoff.clientId,GOOGLE_CLIENT_ID);
+  const next=fixture(Object.fromEntries(first.values));for(let i=0;i<4;i++)await settle();assert.equal(next.ui.getState().connected,true);assert.equal(next.ui.getState().state,'synced');assert.equal(next.requests.length,0);
+  assert.doesNotMatch(JSON.stringify([...next.values]),/access_token|"token"|"expires"/);assert.equal(handoff,null);
+ }finally{DriveSync.prototype.sync=originalSync;DriveSessionBridge.prototype.take=originalTake;DriveSessionBridge.prototype.offer=originalOffer;}
+});
+test('transient identification failures retry with the already authorized token',async()=>{
+ const original=DriveSync.prototype.sync;DriveSync.prototype.sync=async()=>({});
+ try{
+  const f=fixture({});await f.ui.open();await settle();f.env.fetch=async()=>{throw new TypeError('Network lost after consent');};
+  await assert.rejects(f.ui.connect(),error=>error.code==='DRIVE_RETRYABLE');assert.equal(f.ui.getState().state,'pending');assert.equal(f.requests.length,1);
+  f.env.fetch=async()=>Response.json({user:{permissionId:'owner',emailAddress:'owner@example.test'}});await f.retry();assert.equal(f.ui.getState().connected,true);assert.equal(f.ui.getState().state,'synced');assert.equal(f.requests.length,1);assert.equal(f.values.get('drive-connection').enabled,true);
+ }finally{DriveSync.prototype.sync=original;}
+});
+test('an invalid update handoff never uploads or opens Google without a user gesture',async()=>{
+ const originalSync=DriveSync.prototype.sync,originalTake=DriveSessionBridge.prototype.take;let calls=0;
+ DriveSync.prototype.sync=async()=>{calls++;return {};};DriveSessionBridge.prototype.take=async()=>({clientId:GOOGLE_CLIENT_ID,token:'other-account-token',expires:Date.now()+3500000,user:{permissionId:'other'}});
+ try{
+  const f=fixture({'drive-bound-account':'owner','drive-connection':{enabled:true,user:{permissionId:'owner',emailAddress:'owner@example.test'}}});for(let i=0;i<3;i++)await settle();
+  assert.equal(f.ui.getState().connected,false);assert.equal(f.ui.getState().state,'reconnect');assert.equal(calls,0);assert.equal(f.requests.length,0);
+ }finally{DriveSync.prototype.sync=originalSync;DriveSessionBridge.prototype.take=originalTake;}
+});
+test('concurrent Google preparation waits for one initialization before enabling connection',async()=>{
+ const f=fixture({}),google=f.env.google;delete f.env.google;
+ const first=f.ui.prepare(),second=f.ui.prepare();assert.equal(first,second);assert.equal(f.ui.getState().preparing,true);
+ const script=f.document.querySelector('script');assert.ok(script);assert.equal(f.document.querySelectorAll('script').length,1);
+ f.env.google=google;script.onload();await Promise.all([first,second]);assert.equal(f.ui.getState().preparing,false);assert.equal(f.requests.length,0);
 });
