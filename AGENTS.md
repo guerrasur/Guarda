@@ -12,7 +12,7 @@ Sistema adaptado de guerrasur/abridorsimuleitor/updater.js.
 - Verificar npm run check, npm test y npm run build. Confirmar despliegue de Pages antes de afirmar publicación; distinguir pruebas simuladas de iPhone físico.
 
 ## Drive
-- OAuth con drive.file, tokens solo en memoria. Client ID público en src/drive-config.js; nunca guardar secretos.
+- OAuth con drive.file; tokens de Google solo en memoria en el frontend. Client ID y URL pública del servicio en src/drive-config.js; nunca guardar secretos en el repositorio. El servidor opcional de server/ custodia refresh tokens cifrados y usa exclusivamente Workers Free + D1 Free; no activar facturación. La sesión revocable de Guarda en IndexedDB se excluye de backups y de la sincronización.
 - Estado local y cuenta vinculada no deben mezclarse con otras cuentas ni exportarse como configuración de otro dispositivo.
 - Preservar relojes vectoriales, copias de conflictos y marcadores de eliminación. Validar archivos antes de modificarlos.
 - Aplicar descargas solo si la revisión local no cambió durante la red; respetar editores/grabación y Web Locks.

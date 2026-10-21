@@ -1,5 +1,24 @@
 # Activar Google Drive en Guarda
 
+## Conexión persistente preparada en v0.7.0
+
+Se agregó un servidor opcional para renovar el permiso sin interacción usando
+acceso offline, junto con el cliente que restaura automáticamente la sesión al
+abrir la app. **Todavía requiere desplegar y configurar el servicio antes de
+activarlo**: `DRIVE_BROKER_URL` está vacío y conserva el funcionamiento anterior.
+
+La implementación utiliza Workers Free y D1 Free para custodiar permisos
+cifrados; no guarda notas ni audios y no requiere cambiar la dirección del sitio.
+Los tokens de Google siguen sin persistirse en el navegador; allí se conserva
+una sesión revocable de Guarda excluida de copias y de sincronización. La
+transición necesita una autorización inicial por dispositivo, con el mismo
+cliente de GuardaNote y el mismo permiso `drive.file`. Revisar también el estado
+Testing/Production de Google para evitar la expiración semanal.
+
+[Configuración completa, diseño y comprobaciones del servidor](../server/README.md).
+
+## Integración anterior, activa mientras no se configure el servidor
+
 La integración está implementada y el **ID público de cliente OAuth de GuardaNote** está configurado desde v0.4.1. Los pasos siguientes documentan la configuración y sirven para revisar o recrear el cliente. No se utiliza secreto, contraseña, clave de API, servidor propio ni cuenta de servicio. No activar facturación ni una prueba de pago para esta configuración.
 
 ## Configuración inicial del administrador
