@@ -1,6 +1,6 @@
 # Conexión persistente de Guarda con Drive
 
-Estado: implementación preparada, **no desplegada ni habilitada en la aplicación publicada**. La URL del servicio en `src/drive-config.js` queda vacía hasta completar la configuración. GitHub Pages conserva su integración actual durante la transición.
+Estado: servicio de conexión persistente configurado con Cloudflare Workers Free y D1 y URL pública en `src/drive-config.js`. El código 0.7.3 agrega un paso de navegación de primer nivel y diagnóstico de errores de autorización. **El Worker actualizado debe volver a desplegarse** y la autorización real de Google debe verificarse antes de confirmar que la conexión está solucionada. No es necesario reiniciar cuentas, borrar notas ni cambiar la clave de cifrado.
 
 ## Coste y alcance
 
