@@ -60,10 +60,10 @@ async function identity(access, fetcher) {
   const { permissionId, emailAddress, displayName } = data.user;
   return { permissionId, emailAddress, displayName };
 }
-function callbackPage(success) {
+function callbackPage(success, explanation = '') {
   // Never reflect codes, OAuth errors, identities, or tokens in the page.
   const nonce = random();
-  return new Response(`<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Google Drive · Guarda</title><style nonce="${nonce}">body{max-width:32em;margin:15vh auto;padding:24px;font:18px/1.6 system-ui;background:#181b18;color:#f5f2e7}</style><h1>${success ? 'Conexión lista' : 'No se completó la conexión'}</h1><p>${success ? 'Podés cerrar esta ventana y volver a Guarda.' : 'Volvé a Guarda para revisar la conexión. Tus notas están guardadas en tu dispositivo.'}</p><script nonce="${nonce}">history.replaceState(null,'','/oauth/callback');${success ? 'window.close();' : ''}</script></html>`, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Content-Security-Policy': `default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'` } });
+  return new Response(`<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Google Drive · Guarda</title><style nonce="${nonce}">body{max-width:32em;margin:15vh auto;padding:24px;font:18px/1.6 system-ui;background:#181b18;color:#f5f2e7}</style><h1>${success ? 'Conexión lista' : 'No se completó la conexión'}</h1><p>${success ? 'Podés cerrar esta ventana y volver a Guarda.' : explanation || 'Volvé a Guarda para revisar la conexión. Tus notas están guardadas en tu dispositivo.'}</p><script nonce="${nonce}">history.replaceState(null,'','/oauth/callback');${success ? 'window.close();' : ''}</script></html>`, { headers: { 'Content-Type': 'text/html;charset=UTF-8', 'Content-Security-Policy': `default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'` } });
 }
 async function begin(request, env, config, now) {
   const input = await body(request);
@@ -88,22 +88,37 @@ async function start(request, env, config, now) {
   const pending = await unseal(row.payload, env.ENCRYPTION_KEY, 'authorization:' + id), binding = random();
   pending.binding = await digest(binding);
   await env.DB.prepare("UPDATE authorizations SET payload=? WHERE id=? AND status='pending'").bind(await seal(pending, env.ENCRYPTION_KEY, 'authorization:' + id), id).run();
-  const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
-  url.search = new URLSearchParams({ client_id: env.GOOGLE_CLIENT_ID, redirect_uri: config.callback, response_type: 'code', scope: SCOPE, access_type: 'offline', prompt: 'consent', include_granted_scopes: 'false', state: id, code_challenge: await digest(pending.verifier), code_challenge_method: 'S256', ...(pending.hint ? { login_hint: pending.hint } : {}) }).toString();
-  return new Response(null, { status: 303, headers: { Location: url.href, 'Set-Cookie': `__Host-guarda-flow-${id}=${binding}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600` } });
+  // Navigate through our own first-party origin before leaving for Google.
+  // This lets the browser commit the Secure, Lax cookie independently of a
+  // cross-site POST -> Google redirect chain (notably fragile on iOS).
+  return new Response(null, { status: 303, headers: { Location: config.server + '/oauth/continue?state=' + encodeURIComponent(id), 'Set-Cookie': `__Host-guarda-flow-${id}=${binding}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600` } });
+}
+async function continueAuthorization(request, url, env, config, now) {
+  const id = url.searchParams.get('state');
+  if (!/^[\\w-]{43}$/.test(id || '')) return callbackPage(false, 'No se encontró una solicitud de conexión válida. Volvé a Guarda y reintentá.');
+  const row = await env.DB.prepare("SELECT * FROM authorizations WHERE id=? AND status='pending' AND expires>?").bind(id, now).first();
+  if (!row) return callbackPage(false, 'La solicitud de conexión venció o ya fue utilizada. Volvé a Guarda y reintentá.');
+  const pending = await unseal(row.payload, env.ENCRYPTION_KEY, 'authorization:' + id);
+  const binding = request.headers.get('Cookie')?.split(';').map(value => value.trim()).find(value => value.startsWith(`__Host-guarda-flow-${id}=`))?.split('=')[1];
+  if (!/^[\\w-]{43}$/.test(binding || '') || pending.binding !== await digest(binding)) {
+    return callbackPage(false, 'El navegador no conservó la cookie temporal de autorización. Abrí Guarda en Safari o Chrome y permití las cookies del servicio de conexión. Tus notas están guardadas localmente.');
+  }
+  const googleUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+  googleUrl.search = new URLSearchParams({ client_id: env.GOOGLE_CLIENT_ID, redirect_uri: config.callback, response_type: 'code', scope: SCOPE, access_type: 'offline', prompt: 'consent', include_granted_scopes: 'false', state: id, code_challenge: await digest(pending.verifier), code_challenge_method: 'S256', ...(pending.hint ? { login_hint: pending.hint } : {}) }).toString();
+  return new Response(null, { status: 303, headers: { Location: googleUrl.href } });
 }
 async function callback(request, url, env, config, now, fetcher) {
   const id = url.searchParams.get('state');
-  if (!/^[\w-]{43}$/.test(id || '')) return callbackPage(false);
+  if (!/^[\w-]{43}$/.test(id || '')) return callbackPage(false, 'No se encontró una solicitud de conexión válida. Volvé a Guarda y reintentá.');
   const candidate = await env.DB.prepare("SELECT * FROM authorizations WHERE id=? AND status='pending' AND expires>?").bind(id, now).first();
-  if (!candidate) return callbackPage(false);
+  if (!candidate) return callbackPage(false, 'La solicitud de conexión venció o ya fue utilizada. Volvé a Guarda y reintentá.');
   const pending = await unseal(candidate.payload, env.ENCRYPTION_KEY, 'authorization:' + id);
   const binding = request.headers.get('Cookie')?.split(';').map(value => value.trim()).find(value => value.startsWith(`__Host-guarda-flow-${id}=`))?.split('=')[1];
-  if (!/^[\w-]{43}$/.test(binding || '') || pending.binding !== await digest(binding)) return callbackPage(false);
+  if (!/^[\w-]{43}$/.test(binding || '') || pending.binding !== await digest(binding)) return callbackPage(false, 'El navegador no devolvió la cookie temporal al regresar de Google. Reintentá desde Safari o Chrome; tus notas siguen guardadas localmente.');
   // Claim once, before contacting Google; replay cannot mint another session.
   const row = await env.DB.prepare("UPDATE authorizations SET status='exchanging' WHERE id=? AND status='pending' AND expires>? RETURNING *").bind(id, now).first();
-  if (!row) return callbackPage(false);
-  let success = false, payload;
+  if (!row) return callbackPage(false, 'Esta autorización ya fue procesada. Volvé a Guarda para comprobar la conexión.');
+  let success = false, payload, explanation = '';
   try {
     if (url.searchParams.has('error')) fail(401, 'DRIVE_AUTH');
     const code = url.searchParams.get('code'); if (!code || code.length > 4096) fail(401, 'DRIVE_AUTH');
@@ -122,10 +137,11 @@ async function callback(request, url, env, config, now, fetcher) {
     success = true;
   } catch (error) {
     const code = messages[error.code] ? error.code : 'DRIVE_RETRYABLE';
+    explanation = messages[code];
     payload = await seal({ error: { code, message: messages[code] } }, env.ENCRYPTION_KEY, 'authorization:' + id);
     await env.DB.prepare("UPDATE authorizations SET status='failed',payload=? WHERE id=?").bind(payload, id).run();
   }
-  const response = callbackPage(success);
+  const response = callbackPage(success, explanation);
   response.headers.set('Set-Cookie', `__Host-guarda-flow-${id}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`);
   return response;
 }
@@ -191,6 +207,7 @@ export function createWorker({ fetcher = (...args) => fetch(...args), clock = Da
         config = configuration(env); const url = new URL(request.url), now = clock();
         if (url.origin !== config.server) throw failure(400, 'BAD_REQUEST', 'Dirección inválida.');
         if (url.pathname === '/oauth/callback' && request.method === 'GET') response = await callback(request, url, env, config, now, fetcher);
+        else if (url.pathname === '/oauth/continue' && request.method === 'GET') response = await continueAuthorization(request, url, env, config, now);
         else {
           if (origin !== config.app) throw failure(403, 'ORIGIN', 'Origen no autorizado.');
           if (request.method === 'OPTIONS') response = new Response(null, { status: 204 });
