@@ -95,12 +95,12 @@ async function start(request, env, config, now) {
 }
 async function continueAuthorization(request, url, env, config, now) {
   const id = url.searchParams.get('state');
-  if (!/^[\\w-]{43}$/.test(id || '')) return callbackPage(false, 'No se encontró una solicitud de conexión válida. Volvé a Guarda y reintentá.');
+  if (!/^[\w-]{43}$/.test(id || '')) return callbackPage(false, 'No se encontró una solicitud de conexión válida. Volvé a Guarda y reintentá.');
   const row = await env.DB.prepare("SELECT * FROM authorizations WHERE id=? AND status='pending' AND expires>?").bind(id, now).first();
   if (!row) return callbackPage(false, 'La solicitud de conexión venció o ya fue utilizada. Volvé a Guarda y reintentá.');
   const pending = await unseal(row.payload, env.ENCRYPTION_KEY, 'authorization:' + id);
   const binding = request.headers.get('Cookie')?.split(';').map(value => value.trim()).find(value => value.startsWith(`__Host-guarda-flow-${id}=`))?.split('=')[1];
-  if (!/^[\\w-]{43}$/.test(binding || '') || pending.binding !== await digest(binding)) {
+  if (!/^[\w-]{43}$/.test(binding || '') || pending.binding !== await digest(binding)) {
     return callbackPage(false, 'El navegador no conservó la cookie temporal de autorización. Abrí Guarda en Safari o Chrome y permití las cookies del servicio de conexión. Tus notas están guardadas localmente.');
   }
   const googleUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
