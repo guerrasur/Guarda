@@ -129,7 +129,7 @@ export class PersistentDriveClient extends DriveClient {
     this.env.document.body.append(form);
     try { form.submit(); } finally { form.remove(); }
     const deadline = Date.now() + 600000;
-    let closedOnPreviousPoll = false;
+    let closedSince = 0;
     while (Date.now() < deadline) {
       if (this.pending !== pending || pending.controller.signal.aborted) throw error('Conexión cancelada.', 'DRIVE_AUTH');
       let data;
@@ -152,10 +152,14 @@ export class PersistentDriveClient extends DriveClient {
         if (this.valid(previous) && previous.session !== credential.session) await this.queueRevocation(previous);
         return this.user;
       }
-      // A pending response may have been read before the callback committed and
-      // closed the popup. Poll again after observing closure before cancelling.
-      if (pending.popup.closed && closedOnPreviousPoll && data?.pending) throw error('Se cerró la ventana de Google. Podés volver a conectar.', 'DRIVE_INTERACTION');
-      closedOnPreviousPoll = !!pending.popup.closed;
+      // Google may close the popup before the server finishes exchanging
+      // the code, validating Drive identity and committing the session.
+      // Give the callback time to settle rather than treating a stale poll
+      // as a cancelled authorization (especially on slower connections).
+      if (pending.popup.closed) {
+        if (!closedSince) closedSince = Date.now();
+        if (Date.now() - closedSince >= 12000 && data?.pending) throw error('No se completó la conexión. Revisá el mensaje de la ventana de Google o volvé a conectar; tus notas siguen guardadas localmente.', 'DRIVE_INTERACTION');
+      } else closedSince = 0;
       await new Promise(resolve => { pending.wake = resolve; pending.timer = this.env.setTimeout(resolve, this.env.document?.hidden ? 5000 : 1500); });
     }
     throw error('Google no respondió. Volvé a conectar para reintentarlo.', 'DRIVE_INTERACTION');
