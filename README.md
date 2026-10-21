@@ -2,6 +2,12 @@
 
 App web instalable de notas, listas y grabaciones de audio, inspirada en Google Keep. Identidad propia con el guardia medieval aprobado.
 
+v0.7.4: corrige la ventana about:blank al conectar Google Drive desde
+una aplicación instalada en iPhone. La autorización se prepara con una prueba
+de uso único y se abre directamente en el HTTPS del Worker en respuesta
+al toque, sin navegar posteriormente una ventana vacía. No altera notas
+locales ni sesiones anteriores.
+
 v0.7.3: Guarda utiliza el servicio de conexión persistente con Drive en
 Cloudflare Workers Free y D1. Incorpora renovación automática por dispositivo
 sin guardar tokens renovables en el navegador. La nueva autorización pasa por una
