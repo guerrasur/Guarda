@@ -61,6 +61,25 @@ test('one authorization from a click establishes a durable session without persi
   assert.equal(await f.makeClient().resumeSession({ accountId: 'owner' }), true);
   assert.doesNotMatch(JSON.stringify([...f.values]), /google-access|google-refresh/);
 });
+test('a stale pending poll arriving after the callback closes the popup still completes authorization', async t => {
+  const f = await fixture(t, false), callback = f.broker.callback, fetcher = f.env.fetch;
+  let releaseCallback;
+  const gate = new Promise(resolve => { releaseCallback = resolve; });
+  f.broker.callback = async (...args) => { await gate; return callback(...args); };
+  let stalePending = false;
+  f.env.fetch = async (url, options) => {
+    const response = await fetcher(url, options);
+    if (!stalePending && url.includes('/v1/authorizations/') && (await response.clone().json()).pending) {
+      stalePending = true; releaseCallback(); await f.formWork();
+      assert.equal(f.popups[0].closed, true);
+    }
+    return response;
+  };
+  await f.client.prepare(GOOGLE_CLIENT_ID);
+  const user = await f.client.connect({ accountId: 'owner' });
+  assert.equal(stalePending, true); assert.equal(user.permissionId, 'owner');
+  assert.equal(await f.makeClient().resumeSession({ accountId: 'owner' }), true);
+});
 test('blocked popups do not start authorization and cannot leave a stuck pending state', async t => {
   const f = await fixture(t, false); f.env.open = () => null;
   await assert.rejects(f.client.connect(), cause => cause.code === 'DRIVE_INTERACTION'); assert.equal(f.client.pending, null); assert.equal(f.calls.length, 0);
