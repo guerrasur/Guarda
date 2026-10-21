@@ -108,7 +108,11 @@ async function launchAuthorization(request, url, env, config, now) {
   const binding = random();
   pending.binding = await digest(binding);
   delete pending.launchHash;
-  await env.DB.prepare("UPDATE authorizations SET payload=? WHERE id=? AND status='pending'").bind(await seal(pending, env.ENCRYPTION_KEY, 'authorization:' + id), id).run();
+  // Atomic compare-and-swap: concurrent/replayed navigations cannot replace
+  // the binding cookie of the first legitimate launch.
+  const claimed = await env.DB.prepare("UPDATE authorizations SET payload=? WHERE id=? AND payload=? AND status='pending' RETURNING id")
+    .bind(await seal(pending, env.ENCRYPTION_KEY, 'authorization:' + id), id, row.payload).first();
+  if (!claimed) return callbackPage(false, unavailable);
   return new Response(null, { status: 303, headers: {
     Location: config.server + '/oauth/continue?state=' + encodeURIComponent(id),
     'Set-Cookie': `__Host-guarda-flow-${id}=${binding}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600`,
