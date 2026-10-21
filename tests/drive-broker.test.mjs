@@ -40,6 +40,18 @@ test('OAuth uses offline access, PKCE, a first-party callback cookie and proof-p
   const exchanges = f.calls.length; await f.callback(flow, start.headers.get('Set-Cookie').split(';')[0]); assert.equal(f.calls.length, exchanges);
   assert.equal(delivery.headers.get('Cache-Control'), 'no-store'); assert.equal(delivery.headers.get('Access-Control-Allow-Credentials'), null);
 });
+test('a rejected Google authorization explains the failure without leaking the OAuth code', async t => {
+  const f = await brokerFixture(t), flow = await f.begin();
+  const start = await f.start(flow);
+  const response = await f.callback(flow, start.headers.get('Set-Cookie').split(';')[0], '&error=access_denied');
+  const page = await response.text();
+  assert.match(page, /Google necesita una nueva autorización/);
+  assert.doesNotMatch(page, /google-one-use-code|refresh_token|client_secret/);
+  const result = await (await f.poll(flow)).json();
+  assert.equal(result.error.code, 'DRIVE_AUTH');
+  assert.equal(f.sql.prepare('SELECT count(*) AS n FROM sessions').get().n, 0);
+});
+
 test('cross-site start, unknown sessions, oversized requests and unconfigured services fail closed', async t => {
   const f = await brokerFixture(t), flow = await f.begin();
   const hostile = await f.start(flow, 'https://attacker.test'); assert.equal(hostile.status, 403); assert.equal(hostile.headers.get('Access-Control-Allow-Origin'), null); assert.equal(hostile.headers.get('Set-Cookie'), null);
