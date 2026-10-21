@@ -9,31 +9,36 @@ async function fixture(t, saved = true) {
   const broker = await brokerFixture(t), values = new Map(), calls = [], popups = [], forms = [];
   const { document } = parseHTML('<html><body></body></html>');
   const store = { getSetting: async (key, fallback) => values.has(key) ? values.get(key) : fallback, setSetting: async (key, value) => { values.set(key, value); } };
+  let formWork;
   const env = {
     crypto, AbortController, document, navigator: { onLine: true }, clearTimeout,
     setTimeout: (fn, ms) => setTimeout(fn, ms === 1500 || ms === 5000 ? 0 : ms),
-    open(url, name) { const popup = { closed: false, document: {}, close() { this.closed = true; }, name }; popups.push(popup); return popup; },
+    open(url, name) {
+      const popup = { closed: false, document: {}, close() { this.closed = true; }, name, url };
+      popups.push(popup);
+      // Simulate an iOS PWA whose window is immediately navigated to HTTPS:
+      // it has no form target and cannot repair an about:blank window later.
+      if (url.startsWith(broker.env.PUBLIC_ORIGIN + '/oauth/launch?')) {
+        formWork = (async () => {
+          const launch = new URL(url);
+          const started = await broker.request(launch.pathname + launch.search, { origin: null });
+          if (started.status !== 303) throw Error('OAuth launch did not redirect');
+          const cookie = started.headers.get('Set-Cookie').split(';')[0];
+          const intermediate = new URL(started.headers.get('Location'));
+          const continued = await broker.request(intermediate.pathname + intermediate.search, { origin: null, headers: { Cookie: cookie } });
+          if (continued.status !== 303) throw Error('OAuth continue did not reach Google');
+          await broker.callback({ id: launch.searchParams.get('state') }, cookie);
+          popup.closed = true;
+        })();
+      }
+      return popup;
+    },
     async fetch(url, options) {
       calls.push({ url, options });
       if (url.startsWith(broker.env.PUBLIC_ORIGIN)) return broker.worker.fetch(new Request(url, { ...options, headers: { ...options.headers, Origin: broker.env.APP_ORIGIN } }), broker.env);
       if (url.startsWith('https://www.googleapis.com/drive/v3/')) return Response.json({ files: [] });
       throw Error('Unexpected browser request: ' + url);
     },
-  };
-  let formWork;
-  const createElement = document.createElement.bind(document);
-  document.createElement = name => {
-    const element = createElement(name);
-    if (name === 'form') element.submit = () => {
-      forms.push(element);
-      const flow = Object.fromEntries([...element.querySelectorAll('input')].map(input => [input.name, input.value]));
-      formWork = (async () => {
-        const start = await broker.start({ id: flow.id, verifier: flow.verification });
-        await broker.callback({ id: flow.id }, start.headers.get('Set-Cookie').split(';')[0]);
-        popups.at(-1).closed = true;
-      })();
-    };
-    return element;
   };
   const makeClient = () => new PersistentDriveClient({ store, brokerUrl: broker.env.PUBLIC_ORIGIN, env });
   if (saved) {
@@ -56,7 +61,12 @@ test('one authorization from a click establishes a durable session without persi
   const f = await fixture(t, false); await f.client.prepare(GOOGLE_CLIENT_ID);
   const connecting = f.client.connect({ accountId: 'owner' }); assert.equal(f.popups.length, 1, 'window opens synchronously');
   const user = await connecting; await f.formWork(); assert.equal(user.permissionId, 'owner');
-  assert.equal(f.forms[0].method, 'POST'); assert.equal(f.forms[0].action, f.broker.env.PUBLIC_ORIGIN + '/oauth/start'); assert.equal(f.popups[0].opener, null);
+  const launched = new URL(f.popups[0].url);
+  assert.equal(launched.origin, f.broker.env.PUBLIC_ORIGIN);
+  assert.equal(launched.pathname, '/oauth/launch');
+  assert.match(launched.searchParams.get('state'), /^[\w-]{43}$/);
+  assert.match(launched.searchParams.get('ticket'), /^[\w-]{43}$/);
+  assert.equal(f.forms.length, 0, 'no target form or about:blank navigation');
   assert.equal(f.client.pending, null); assert.equal(f.popups[0].closed, true);
   assert.equal(await f.makeClient().resumeSession({ accountId: 'owner' }), true);
   assert.doesNotMatch(JSON.stringify([...f.values]), /google-access|google-refresh/);
@@ -81,8 +91,11 @@ test('a stale pending poll arriving after the callback closes the popup still co
   assert.equal(await f.makeClient().resumeSession({ accountId: 'owner' }), true);
 });
 test('blocked popups do not start authorization and cannot leave a stuck pending state', async t => {
-  const f = await fixture(t, false); f.env.open = () => null;
-  await assert.rejects(f.client.connect(), cause => cause.code === 'DRIVE_INTERACTION'); assert.equal(f.client.pending, null); assert.equal(f.calls.length, 0);
+  const f = await fixture(t, false); await f.client.prepare(GOOGLE_CLIENT_ID);
+  const callsBefore = f.calls.length;
+  f.env.open = () => null;
+  await assert.rejects(f.client.connect(), cause => cause.code === 'DRIVE_INTERACTION');
+  assert.equal(f.client.pending, null); assert.equal(f.calls.length, callsBefore);
 });
 test('network loss retains the durable session; revoked permission requires authorization only once', async t => {
   const f = await fixture(t), fetcher = f.env.fetch;
