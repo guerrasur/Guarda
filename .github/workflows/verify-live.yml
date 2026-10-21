@@ -1,0 +1,36 @@
+name: Comprobar publicación de Guarda
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Comprobar versión publicada en GitHub Pages y Worker de Cloudflare
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          const paths = [
+            { name: 'GitHub Pages', url: 'https://guerrasur.github.io/Guarda/version.json?check=' + Date.now(), match: body => { try { return JSON.parse(body).version === '0.7.3'; } catch { return false; } } },
+            { name: 'Cloudflare Worker OAuth', url: 'https://guarda-drive.luchoguerra33.workers.dev/oauth/continue?state=invalid', match: body => body.includes('No se encontró una solicitud de conexión válida') }
+          ];
+          let failures = 0;
+          for (const target of paths) {
+            let ready = false;
+            for (let i=0;i<9;i++) {
+              try {
+                const response = await fetch(target.url, { signal: AbortSignal.timeout(12000), cache: 'no-store' });
+                const body = await response.text();
+                if (response.ok && target.match(body)) { console.log(target.name + ': actualizado'); ready = true; break; }
+                console.log(target.name + ': pendiente (HTTP ' + response.status + ')');
+              } catch (err) { console.log(target.name + ': sin respuesta (' + (err.name || 'error') + ')'); }
+              if (i !== 8) await new Promise(resolve => setTimeout(resolve, 10000));
+            }
+            if (!ready) { console.error(target.name + ': requiere publicación o revisión manual de infraestructura'); failures++; }
+          }
+          if (failures) process.exitCode = 1;
+          NODE
