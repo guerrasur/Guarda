@@ -11,12 +11,24 @@ test('grant encryption authenticates both the record and the ciphertext', async 
 });
 test('OAuth uses offline access, PKCE, a first-party callback cookie and proof-protected delivery', async t => {
   const f = await brokerFixture(t), flow = await f.begin(), start = await f.start(flow);
-  assert.equal(start.status, 303); const url = new URL(start.headers.get('Location'));
+  assert.equal(start.status, 303); const landing = new URL(start.headers.get('Location'));
+  assert.equal(landing.origin, f.env.PUBLIC_ORIGIN);
+  assert.equal(landing.pathname, '/oauth/continue');
+  assert.equal(landing.searchParams.get('state'), flow.id);
+  const noCookie = await f.request(landing.pathname + landing.search, { origin: null });
+  assert.equal(noCookie.status, 200);
+  assert.match(await noCookie.text(), /cookie temporal/);
+  assert.equal(f.calls.length, 0, 'an unbound browser cannot initiate Google consent');
+  const continueResponse = await f.request(landing.pathname + landing.search, { origin: null, headers: { Cookie: start.headers.get('Set-Cookie').split(';')[0] } });
+  assert.equal(continueResponse.status, 303);
+  const url = new URL(continueResponse.headers.get('Location'));
   assert.equal(url.origin, 'https://accounts.google.com'); assert.equal(url.searchParams.get('state'), flow.id);
   assert.equal(url.searchParams.get('access_type'), 'offline'); assert.equal(url.searchParams.get('code_challenge_method'), 'S256');
   assert.equal(url.searchParams.get('scope'), 'https://www.googleapis.com/auth/drive.file');
   assert.match(start.headers.get('Set-Cookie'), /HttpOnly; Secure; SameSite=Lax/);
-  await f.callback(flow); assert.equal(f.calls.length, 0, 'a forwarded Google link cannot grant the initiating attacker access');
+  const badCallback = await f.callback(flow);
+  assert.match(await badCallback.text(), /cookie temporal/);
+  assert.equal(f.calls.length, 0, 'a forwarded Google link cannot grant the initiating attacker access');
   const response = await f.callback(flow, start.headers.get('Set-Cookie').split(';')[0]); assert.equal(response.status, 200);
   assert.doesNotMatch(await response.text(), /google-access-|google-refresh-|google-one-use-code/);
   assert.match(response.headers.get('Set-Cookie'), /Max-Age=0/);
