@@ -2,6 +2,11 @@
 
 App web instalable de notas, listas y grabaciones de audio, inspirada en Google Keep. Identidad propia con el guardia medieval aprobado.
 
+v0.7.5: la conexión de Drive espera el resultado del servidor aunque el navegador
+indique que la ventana de Google está cerrada por aislamiento. Se puede detener
+una autorización pendiente desde «Desconectar este dispositivo»; se mantiene
+el límite de diez minutos y se descartan respuestas posteriores a la cancelación.
+
 v0.7.4: corrige la ventana about:blank al conectar Google Drive desde
 una aplicación instalada en iPhone. La autorización se prepara con una prueba
 de uso único y se abre directamente en el HTTPS del Worker en respuesta

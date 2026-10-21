@@ -146,12 +146,12 @@ export class PersistentDriveClient extends DriveClient {
   async authorize(pending, flow, accountId) {
     const { id, verifier } = flow;
     const deadline = Date.now() + 600000;
-    let closedSince = 0;
     while (Date.now() < deadline) {
       if (this.pending !== pending || pending.controller.signal.aborted) throw error('Conexión cancelada.', 'DRIVE_AUTH');
       let data;
       try { data = await this.api('/v1/authorizations/' + id, { verifier, signal: pending.controller.signal }); }
       catch (cause) { if (cause.code !== 'DRIVE_RETRYABLE') throw cause; }
+      if (this.pending !== pending || pending.controller.signal.aborted) throw error('Conexión cancelada.', 'DRIVE_AUTH');
       if (data?.error) throw error(data.error.message, data.error.code);
       if (data?.session) {
         if (accountId && data.user?.permissionId !== accountId) throw error('Estas notas pertenecen a otra cuenta. Conectá la cuenta vinculada.', 'DRIVE_ACCOUNT');
@@ -169,14 +169,9 @@ export class PersistentDriveClient extends DriveClient {
         if (this.valid(previous) && previous.session !== credential.session) await this.queueRevocation(previous);
         return this.user;
       }
-      // Google may close the popup before the server finishes exchanging
-      // the code, validating Drive identity and committing the session.
-      // Give the callback time to settle rather than treating a stale poll
-      // as a cancelled authorization (especially on slower connections).
-      if (pending.popup.closed) {
-        if (!closedSince) closedSince = Date.now();
-        if (Date.now() - closedSince >= 12000 && data?.pending) throw error('No se completó la conexión. Revisá el mensaje de la ventana de Google o volvé a conectar; tus notas siguen guardadas localmente.', 'DRIVE_INTERACTION');
-      } else closedSince = 0;
+      // Browser isolation (COOP and iOS PWA sheets) can report closed=true
+      // while Google is still open. Only the proof-protected server result,
+      // an explicit disconnect or the authorization deadline ends this flow.
       await new Promise(resolve => { pending.wake = resolve; pending.timer = this.env.setTimeout(resolve, this.env.document?.hidden ? 5000 : 1500); });
     }
     throw error('Google no respondió. Volvé a conectar para reintentarlo.', 'DRIVE_INTERACTION');

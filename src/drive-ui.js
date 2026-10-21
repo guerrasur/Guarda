@@ -15,7 +15,7 @@ export function initDrive({store,isBusy,onApplied,utility,closeUtility,showError
   if($('drive-save-client'))$('drive-save-client').disabled=preparing||working;
   if($('drive-connect')){const button=$('drive-connect');button.disabled=preparing||working;button.textContent=preparing?'Preparando conexión…':prepareFailed?'Reintentar conexión con Google':client.connected?(client.persistent?'Revisar conexión':'Renovar conexión con Google'):enabled?'Reconectar Google Drive':'Conectar Google Drive';}
   if($('drive-sync-now'))$('drive-sync-now').disabled=!client.connected||working;
-  if($('drive-disconnect'))$('drive-disconnect').disabled=(!client.user&&!enabled)||working;
+  if($('drive-disconnect'))$('drive-disconnect').disabled=(!client.user&&!enabled&&!client.pending)||!!flight||!!sync.running;
   if($('drive-folder')){const link=$('drive-folder');link.hidden=!client.folder?.id;if(client.folder?.id)link.href='https://drive.google.com/drive/folders/'+encodeURIComponent(client.folder.id);}
   if($('drive-account'))$('drive-account').textContent=(client.connected?'Conectado a ': 'Cuenta vinculada: ')+((client.user||remembered)?.emailAddress||(client.user||remembered)?.displayName||'Google Drive');
  }
@@ -129,7 +129,7 @@ export function initDrive({store,isBusy,onApplied,utility,closeUtility,showError
   $('drive-save-client').onclick=async()=>{try{clientId=$('drive-client-id').value.trim();await prepare();await store.setSetting('drive-client-id',clientId);status('Configuración lista. Tocá Conectar Google Drive.');}catch(error){status(error.message);}};
   $('drive-connect').onclick=()=>{if(client.persistent&&client.connected){attempt(true).catch(showError);return;}if(!prepared){prepare().then(()=>status('Conexión lista. Tocá Conectar Google Drive.')).catch(error=>{status(error.message);showError(error);});return;}closeUtility();connect().catch(showError);};
   $('drive-sync-now').onclick=()=>{closeUtility();attempt(true).catch(showError);};
-  $('drive-disconnect').onclick=async()=>{if(flight||client.pending)return;enabled=false;remembered=null;renewalAttempted=true;const disconnected=client.disconnect();sessionCandidate=null;env.clearTimeout(timer);timer=null;retryAt=0;backoff=3000;await store.setSetting('drive-connection',{enabled:false});await disconnected;await bridge.clear();status('Drive desconectado. Se conserva el guardado local.');indicator('hidden','');closeUtility();};
+  $('drive-disconnect').onclick=async()=>{if(flight||sync.running)return;enabled=false;remembered=null;renewalAttempted=true;const disconnected=client.disconnect();sessionCandidate=null;env.clearTimeout(timer);timer=null;retryAt=0;backoff=3000;await store.setSetting('drive-connection',{enabled:false});await disconnected;await bridge.clear();status('Drive desconectado. Se conserva el guardado local.');indicator('hidden','');closeUtility();};
   if((!prepared||preparedId!==clientId)&&!preparing&&clientId)prepare().catch(error=>status(error.message));else controls();
  }
  const ready=(async()=>{clientId=await store.getSetting('drive-client-id',GOOGLE_CLIENT_ID);client.flushRevocations?.().catch(()=>{});const saved=await store.getSetting('drive-connection',null);boundAccount=await store.getSetting('drive-bound-account',null);if(saved?.enabled||(!saved&&boundAccount)){enabled=true;remembered=saved?.user||null;sessionCandidate=client.persistent?null:await bridge.take();await background();}initialized=true;})().catch(showError);
