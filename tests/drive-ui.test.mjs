@@ -247,3 +247,19 @@ test('persistent migration waits for one explicit authorization and never hijack
  for(let i=0;i<100&&f.ui.getState().state!=='reconnect';i++)await new Promise(resolve=>setTimeout(resolve,2));
  gesture(f);await settle();assert.equal(f.requests.length,0);assert.equal(f.ui.getState().state,'reconnect');assert.match(f.ui.getState().message,/una vez/);
 });
+test('a pending persistent authorization can be disconnected from the Drive panel',async t=>{
+ const broker=await brokerFixture(t);
+ const f=fixture({},{brokerUrl:broker.env.PUBLIC_ORIGIN,env:{open:()=>({closed:true,close(){}}),fetch:async(url,options)=>broker.worker.fetch(new Request(url,{...options,headers:{...options.headers,Origin:broker.env.APP_ORIGIN}}),broker.env)}});
+ await f.ui.open();
+ for(let i=0;i<100&&f.ui.getState().preparing;i++)await new Promise(resolve=>setTimeout(resolve,2));
+ const result=f.ui.connect().catch(error=>error);
+ await settle();await f.ui.open();
+ assert.equal(f.document.getElementById('drive-connect').disabled,true);
+ assert.equal(f.document.getElementById('drive-disconnect').disabled,false);
+ await f.document.getElementById('drive-disconnect').onclick();
+ assert.equal((await result).code,'DRIVE_AUTH');
+ assert.equal(f.ui.getState().working,false);
+ assert.equal(f.ui.getState().enabled,false);
+ assert.equal(f.values.get('drive-broker-session'),null);
+ assert.equal(f.values.get('drive-connection').enabled,false);
+});

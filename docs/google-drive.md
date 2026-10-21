@@ -1,11 +1,18 @@
 # Activar Google Drive en Guarda
 
-## Conexión persistente preparada en v0.7.0
+## Estado de la conexión persistente
 
-Se agregó un servidor opcional para renovar el permiso sin interacción usando
-acceso offline, junto con el cliente que restaura automáticamente la sesión al
-abrir la app. **Todavía requiere desplegar y configurar el servicio antes de
-activarlo**: `DRIVE_BROKER_URL` está vacío y conserva el funcionamiento anterior.
+El cliente usa `https://guarda-drive.luchoguerra33.workers.dev`, configurado en
+`DRIVE_BROKER_URL`, para recuperar la sesión al abrir la app y renovar el permiso
+sin interacción. El 21 de octubre de 2026 se comprobó que `/v1/config` responde
+con `persistent: true` al origen de Guarda y que Pages publica v0.7.4.
+Estas comprobaciones no acreditan la autorización real con Google ni su
+persistencia en un iPhone físico; esa prueba sigue pendiente.
+
+La corrección v0.7.5 espera el resultado del servidor aunque la referencia de
+la ventana informe `closed: true`: el aislamiento entre sitios puede producir
+esa señal mientras Google sigue abierto. La espera termina por resultado,
+desconexión explícita desde el panel o vencimiento de diez minutos.
 
 La implementación utiliza Workers Free y D1 Free para custodiar permisos
 cifrados; no guarda notas ni audios y no requiere cambiar la dirección del sitio.
@@ -17,7 +24,7 @@ Testing/Production de Google para evitar la expiración semanal.
 
 [Configuración completa, diseño y comprobaciones del servidor](../server/README.md).
 
-## Integración anterior, activa mientras no se configure el servidor
+## Integración anterior, disponible si se desactiva el servidor
 
 La integración está implementada y el **ID público de cliente OAuth de GuardaNote** está configurado desde v0.4.1. Los pasos siguientes documentan la configuración y sirven para revisar o recrear el cliente. No se utiliza secreto, contraseña, clave de API, servidor propio ni cuenta de servicio. No activar facturación ni una prueba de pago para esta configuración.
 

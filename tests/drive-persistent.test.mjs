@@ -97,6 +97,44 @@ test('blocked popups do not start authorization and cannot leave a stuck pending
   await assert.rejects(f.client.connect(), cause => cause.code === 'DRIVE_INTERACTION');
   assert.equal(f.client.pending, null); assert.equal(f.calls.length, callsBefore);
 });
+test('an isolated Google window reporting closed cannot cancel consent before the server result', async t => {
+  const f = await fixture(t, false), fetcher = f.env.fetch, open = f.env.open, callback = f.broker.callback;
+  let now = Date.now(), polls = 0, release;
+  t.mock.method(Date, 'now', () => now);
+  const gate = new Promise(resolve => { release = resolve; });
+  f.broker.callback = async (...args) => { await gate; return callback(...args); };
+  f.env.open = (...args) => { const popup = open(...args); popup.closed = true; return popup; };
+  f.env.fetch = async (url, options) => {
+    const response = await fetcher(url, options);
+    if (url.includes('/v1/authorizations/')) {
+      now += 5000;
+      if (++polls === 6) { release(); await f.formWork(); }
+    }
+    return response;
+  };
+  await f.client.prepare(GOOGLE_CLIENT_ID);
+  try {
+    const user = await f.client.connect({ accountId: 'owner' });
+    assert.equal(user.permissionId, 'owner');
+    assert.ok(polls >= 6, 'consent can take more than twelve seconds');
+    assert.equal(await f.makeClient().resumeSession({ accountId: 'owner' }), true);
+  } finally { release(); await f.formWork(); }
+});
+test('an abandoned authorization still times out without saving a device session', async t => {
+  const f = await fixture(t, false), fetcher = f.env.fetch;
+  let now = Date.now();
+  t.mock.method(Date, 'now', () => now);
+  f.env.open = () => ({ closed: true, close() {} });
+  f.env.fetch = async (url, options) => {
+    const response = await fetcher(url, options);
+    if (url.includes('/v1/authorizations/')) now += 200000;
+    return response;
+  };
+  await f.client.prepare(GOOGLE_CLIENT_ID);
+  await assert.rejects(f.client.connect(), cause => cause.code === 'DRIVE_INTERACTION' && /Google no respondió/.test(cause.message));
+  assert.equal(f.client.pending, null);
+  assert.equal(f.values.has('drive-broker-session'), false);
+});
 test('network loss retains the durable session; revoked permission requires authorization only once', async t => {
   const f = await fixture(t), fetcher = f.env.fetch;
   f.env.fetch = async () => { throw new DOMException('Timeout', 'AbortError'); };
