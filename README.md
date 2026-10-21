@@ -2,11 +2,13 @@
 
 App web instalable de notas, listas y grabaciones de audio, inspirada en Google Keep. Identidad propia con el guardia medieval aprobado.
 
-v0.7.0 (preparada): servidor de renovación automática de Drive y sesión duradera
-por dispositivo, con permisos cifrados, aislamiento de cuentas y recuperación de
-red sin ventanas de Google. Pendiente de configurar Cloudflare Workers Free/D1
-y la redirección de Google antes de habilitarlo. La URL del servicio está vacía
-y mantiene la integración anterior hasta entonces.
+v0.7.3: Guarda utiliza el servicio de conexión persistente con Drive en
+Cloudflare Workers Free y D1. Incorpora renovación automática por dispositivo
+sin guardar tokens renovables en el navegador. La nueva autorización pasa por una
+navegación de primer nivel para verificar la cookie temporal, informa errores
+del callback y espera el resultado aunque Google cierre el popup.
+La publicación del Worker actualizado y la autorización real siguen pendientes
+de verificación, y la aprobación de la marca en Google se gestiona por separado.
 [Activación y arquitectura](server/README.md).
 
 v0.6.15: recuperación temporal de Drive al recargar, renovación de consentimiento
