@@ -20,8 +20,8 @@ jobs:
         run: |
           node --input-type=module <<'NODE'
           const paths = [
-            { name: 'GitHub Pages', url: 'https://guerrasur.github.io/Guarda/version.json?check=' + Date.now(), match: body => { try { return JSON.parse(body).version === '0.7.3'; } catch { return false; } } },
-            { name: 'Cloudflare Worker OAuth', url: 'https://guarda-drive.luchoguerra33.workers.dev/oauth/continue?state=invalid', match: body => body.includes('No se encontró una solicitud de conexión válida') }
+            { name: 'GitHub Pages', url: 'https://guerrasur.github.io/Guarda/version.json?check=' + Date.now(), match: body => { try { return JSON.parse(body).version === '0.7.4'; } catch { return false; } } },
+            { name: 'Cloudflare Worker OAuth', url: 'https://guarda-drive.luchoguerra33.workers.dev/oauth/launch?state=invalid&ticket=invalid', match: body => body.includes('Esta solicitud de conexión no está disponible') }
           ];
           const statusUrl = `https://api.github.com/repos/${process.env.REPO}/statuses/${process.env.COMMIT_SHA}`;
           async function report(state, description) {

@@ -40,6 +40,29 @@ test('OAuth uses offline access, PKCE, a first-party callback cookie and proof-p
   const exchanges = f.calls.length; await f.callback(flow, start.headers.get('Set-Cookie').split(';')[0]); assert.equal(f.calls.length, exchanges);
   assert.equal(delivery.headers.get('Cache-Control'), 'no-store'); assert.equal(delivery.headers.get('Access-Control-Allow-Credentials'), null);
 });
+test('one-time direct HTTPS launch works without an Origin header or blank window', async t => {
+  const f = await brokerFixture(t), flow = await f.begin();
+  const url = '/oauth/launch?state=' + encodeURIComponent(flow.id) + '&ticket=' + encodeURIComponent(flow.launchTicket);
+  const wrong = await f.request('/oauth/launch?state=' + flow.id + '&ticket=' + random(), { origin: null });
+  assert.equal(wrong.status, 200); assert.match(await wrong.text(), /no está disponible/);
+  const first = await f.request(url, { origin: null });
+  assert.equal(first.status, 303);
+  assert.equal(new URL(first.headers.get('Location')).pathname, '/oauth/continue');
+  const cookie = first.headers.get('Set-Cookie').split(';')[0];
+  assert.match(cookie, /^__Host-guarda-flow-/);
+  const replay = await f.request(url, { origin: null });
+  assert.equal(replay.status, 200); assert.match(await replay.text(), /no está disponible/);
+  const intermediate = new URL(first.headers.get('Location'));
+  const next = await f.request(intermediate.pathname + intermediate.search, { origin: null, headers: { Cookie: cookie } });
+  assert.equal(next.status, 303); assert.equal(new URL(next.headers.get('Location')).origin, 'https://accounts.google.com');
+  const callback = await f.callback(flow, cookie);
+  assert.match(await callback.text(), /Conexión lista/);
+  const data = await (await f.poll(flow)).json();
+  assert.equal(data.user.permissionId, 'owner');
+  assert.match(data.session, /^[\w-]{43}$/);
+  assert.doesNotMatch(JSON.stringify(data), /google-access|google-refresh/);
+});
+
 test('a rejected Google authorization explains the failure without leaking the OAuth code', async t => {
   const f = await brokerFixture(t), flow = await f.begin();
   const start = await f.start(flow);

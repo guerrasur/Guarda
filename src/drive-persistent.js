@@ -37,6 +37,22 @@ export class PersistentDriveClient extends DriveClient {
     const config = await this.api('/v1/config');
     if (!config.persistent || config.clientId !== clientId) throw error('La configuración de Google no coincide con el servicio de Guarda.', 'DRIVE_PERMISSION');
     this.clientId = clientId; await this.flushRevocations();
+    await this.prepareAuthorization();
+  }
+  prepareAuthorization(accountId = null, hint = '') {
+    const current = this.readyAuthorization;
+    if (current && Date.now() - current.createdAt < 480000) return Promise.resolve();
+    if (this.authorizationFlight) return this.authorizationFlight;
+    this.authorizationFlight = (async () => {
+      const verifier = encode(this.env.crypto.getRandomValues(new Uint8Array(32)));
+      const challenge = encode(await this.env.crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
+      const start = await this.api('/v1/authorizations', { method: 'POST', body: { challenge, accountId, hint } });
+      if (!/^[\w-]{43}$/.test(start.id || '') || !/^[\w-]{43}$/.test(start.launchTicket || '')) {
+        throw error('El servicio devolvió una autorización inválida.', 'DRIVE_PERMISSION');
+      }
+      this.readyAuthorization = { id: start.id, verifier, launchTicket: start.launchTicket, createdAt: Date.now() };
+    })().finally(() => { this.authorizationFlight = null; });
+    return this.authorizationFlight;
   }
   valid(credential) {
     return credential?.broker === this.brokerUrl && credential.clientId === this.clientId && /^[\w-]{43}$/.test(credential.session || '') && typeof credential.accountId === 'string' && !!credential.accountId;
@@ -104,36 +120,37 @@ export class PersistentDriveClient extends DriveClient {
   }
   connect({ accountId = null, hint = '' } = {}) {
     if (this.pending) return Promise.reject(error('La conexión ya está en curso.'));
-    // Open before the first await, preserving Safari's user activation.
-    const name = 'guarda-drive-' + this.env.crypto.randomUUID(), popup = this.env.open?.('', name);
+    const flow = this.readyAuthorization;
+    if (!flow || Date.now() - flow.createdAt >= 480000) {
+      this.readyAuthorization = null;
+      this.prepareAuthorization(accountId, hint).catch(() => {});
+      return Promise.reject(error('Preparando la conexión segura. Esperá unos segundos y tocá Conectar Google Drive otra vez.', 'DRIVE_INTERACTION'));
+    }
+    // The URL MUST be non-empty at window.open time. In an installed iOS PWA,
+    // opening about:blank and then targeting a form at its name can strand
+    // the Safari sheet on a blank screen.
+    const name = 'guarda-drive-' + this.env.crypto.randomUUID();
+    const launchUrl = this.brokerUrl + '/oauth/launch?state=' + encodeURIComponent(flow.id) + '&ticket=' + encodeURIComponent(flow.launchTicket);
+    const popup = this.env.open?.(launchUrl, name);
     if (!popup) return Promise.reject(error('Permití las ventanas emergentes o abrí Guarda desde Safari para conectar Google.', 'DRIVE_INTERACTION'));
-    try { popup.opener = null; popup.document.title = 'Conectando Google Drive…'; } catch {}
+    this.readyAuthorization = null;
+    try { popup.opener = null; } catch {}
     const pending = { popup, name, controller: new this.env.AbortController(), generation: this.generation };
     this.pending = pending;
-    return this.authorize(pending, accountId, hint).finally(() => {
+    return this.authorize(pending, flow, accountId).finally(() => {
       this.env.clearTimeout(pending.timer); try { popup.close(); } catch {}
       if (this.pending === pending) this.pending = null;
+      this.prepareAuthorization(accountId, hint).catch(() => {});
     });
   }
-  async authorize(pending, accountId, hint) {
-    const verifier = encode(this.env.crypto.getRandomValues(new Uint8Array(32)));
-    const challenge = encode(await this.env.crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
-    const start = await this.api('/v1/authorizations', { method: 'POST', body: { challenge, accountId, hint }, signal: pending.controller.signal });
-    if (!/^[\w-]{43}$/.test(start.id || '')) throw error('El servicio devolvió una autorización inválida.', 'DRIVE_PERMISSION');
-    if (this.pending !== pending || pending.generation !== this.generation) throw error('Conexión cancelada.', 'DRIVE_AUTH');
-    const form = this.env.document.createElement('form');
-    form.method = 'POST'; form.action = this.brokerUrl + '/oauth/start'; form.target = pending.name; form.hidden = true;
-    for (const [name, value] of Object.entries({ id: start.id, verification: verifier })) {
-      const input = this.env.document.createElement('input'); input.type = 'hidden'; input.name = name; input.value = value; form.append(input);
-    }
-    this.env.document.body.append(form);
-    try { form.submit(); } finally { form.remove(); }
+  async authorize(pending, flow, accountId) {
+    const { id, verifier } = flow;
     const deadline = Date.now() + 600000;
     let closedSince = 0;
     while (Date.now() < deadline) {
       if (this.pending !== pending || pending.controller.signal.aborted) throw error('Conexión cancelada.', 'DRIVE_AUTH');
       let data;
-      try { data = await this.api('/v1/authorizations/' + start.id, { verifier, signal: pending.controller.signal }); }
+      try { data = await this.api('/v1/authorizations/' + id, { verifier, signal: pending.controller.signal }); }
       catch (cause) { if (cause.code !== 'DRIVE_RETRYABLE') throw cause; }
       if (data?.error) throw error(data.error.message, data.error.code);
       if (data?.session) {

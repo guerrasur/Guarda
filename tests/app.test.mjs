@@ -91,13 +91,20 @@ await test('an undo failure leaves its error message visible instead of hiding t
  const original=GuardaStore.prototype.putNote,log=console.error;GuardaStore.prototype.putNote=async()=>{throw new Error('Fallo de guardado de prueba');};console.error=()=>{};
  try{await $('toast').querySelector('button').onclick();assert.equal($('toast').hidden,false);assert.match($('toast').textContent,/Fallo de guardado de prueba/);assert.equal((await store.allNotes()).find(n=>n.id===id).archived,true);}finally{GuardaStore.prototype.putNote=original;console.error=log;}
 });
-await test('Drive prepares the configured persistent service without requesting authorization or changing notes',async()=>{
+await test('Drive preallocates a one-use launch ticket without opening Google or changing notes',async()=>{
  const {GOOGLE_CLIENT_ID,DRIVE_BROKER_URL}=await import('../src/drive-config.js');let requested=0,configured=false;
  const originalFetch=globalThis.fetch;
  globalThis.google={accounts:{oauth2:{initTokenClient:()=>{requested++;throw Error('Persistent Drive must not initialize browser OAuth');}}}};
  globalThis.fetch=async(url,options)=>{
-  assert.equal(url,DRIVE_BROKER_URL+'/v1/config');assert.equal(options.credentials,'omit');
-  configured=true;return Response.json({persistent:true,clientId:GOOGLE_CLIENT_ID});
+  assert.equal(options.credentials,'omit');
+  if(url===DRIVE_BROKER_URL+'/v1/config'){
+   configured=true;return Response.json({persistent:true,clientId:GOOGLE_CLIENT_ID});
+  }
+  if(url===DRIVE_BROKER_URL+'/v1/authorizations'&&options.method==='POST'){
+   const input=JSON.parse(options.body);assert.match(input.challenge,/^[\w-]{43}$/);
+   return Response.json({id:'a'.repeat(43),launchTicket:'b'.repeat(43)});
+  }
+  throw Error('Unexpected Drive broker endpoint '+url);
  };
  try{const count=(await store.allNotes()).length;$('settings-toggle').onclick();$('drive-settings').onclick();await until(()=>configured&&$('drive-panel-status')&&$('drive-connect').disabled===false);assert.equal($('drive-client-id').value,GOOGLE_CLIENT_ID);assert.equal(requested,0);assert.equal($('drive-connect').textContent,'Conectar Google Drive');assert.equal((await store.allNotes()).length,count);$('utility-dialog').close();}finally{globalThis.fetch=originalFetch;delete globalThis.google;}
 });

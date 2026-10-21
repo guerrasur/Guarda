@@ -71,10 +71,10 @@ async function begin(request, env, config, now) {
   const bucket = await digest(env.ENCRYPTION_KEY + ':' + (request.headers.get('CF-Connecting-IP') || 'unknown') + ':' + Math.floor(now / TEN_MINUTES));
   const rate = await env.DB.prepare('INSERT INTO rate_limits(bucket,count,expires) VALUES(?,1,?) ON CONFLICT(bucket) DO UPDATE SET count=count+1 RETURNING count').bind(bucket, now + TEN_MINUTES).first();
   if (rate.count > 10) throw failure(429, 'DRIVE_RETRYABLE', 'Esperá unos minutos antes de volver a conectar.');
-  const id = random(), verifier = random();
-  const payload = await seal({ verifier, accountId: input.accountId || null, hint: input.hint || '' }, env.ENCRYPTION_KEY, 'authorization:' + id);
+  const id = random(), verifier = random(), launchTicket = random();
+  const payload = await seal({ verifier, accountId: input.accountId || null, hint: input.hint || '', launchHash: await digest(launchTicket) }, env.ENCRYPTION_KEY, 'authorization:' + id);
   await env.DB.prepare('INSERT INTO authorizations(id,challenge,payload,expires) VALUES(?,?,?,?)').bind(id, input.challenge, payload, now + TEN_MINUTES).run();
-  return json({ id });
+  return json({ id, launchTicket });
 }
 async function start(request, env, config, now) {
   // Top-level form POST from the app: a cross-site attacker cannot set the
@@ -92,6 +92,31 @@ async function start(request, env, config, now) {
   // This lets the browser commit the Secure, Lax cookie independently of a
   // cross-site POST -> Google redirect chain (notably fragile on iOS).
   return new Response(null, { status: 303, headers: { Location: config.server + '/oauth/continue?state=' + encodeURIComponent(id), 'Set-Cookie': `__Host-guarda-flow-${id}=${binding}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600` } });
+}
+// Open a real HTTPS page directly from the PWA's click event. iOS home-screen
+// web apps can strand a synchronous about:blank window when a later HTML form
+// targets it. The launch ticket can only navigate the browser to Google: it
+// cannot read the resulting session, which still requires the private verifier.
+async function launchAuthorization(request, url, env, config, now) {
+  const id = url.searchParams.get('state'), ticket = url.searchParams.get('ticket');
+  const unavailable = 'Esta solicitud de conexión no está disponible. Volvé a Guarda y tocá Conectar Google Drive nuevamente.';
+  if (!/^[\w-]{43}$/.test(id || '') || !/^[\w-]{43}$/.test(ticket || '')) return callbackPage(false, unavailable);
+  const row = await env.DB.prepare("SELECT * FROM authorizations WHERE id=? AND status='pending' AND expires>?").bind(id, now).first();
+  if (!row) return callbackPage(false, unavailable);
+  const pending = await unseal(row.payload, env.ENCRYPTION_KEY, 'authorization:' + id);
+  if (!pending.launchHash || pending.binding || pending.launchHash !== await digest(ticket)) return callbackPage(false, unavailable);
+  const binding = random();
+  pending.binding = await digest(binding);
+  delete pending.launchHash;
+  // Atomic compare-and-swap: concurrent/replayed navigations cannot replace
+  // the binding cookie of the first legitimate launch.
+  const claimed = await env.DB.prepare("UPDATE authorizations SET payload=? WHERE id=? AND payload=? AND status='pending' RETURNING id")
+    .bind(await seal(pending, env.ENCRYPTION_KEY, 'authorization:' + id), id, row.payload).first();
+  if (!claimed) return callbackPage(false, unavailable);
+  return new Response(null, { status: 303, headers: {
+    Location: config.server + '/oauth/continue?state=' + encodeURIComponent(id),
+    'Set-Cookie': `__Host-guarda-flow-${id}=${binding}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600`,
+  } });
 }
 async function continueAuthorization(request, url, env, config, now) {
   const id = url.searchParams.get('state');
@@ -207,6 +232,7 @@ export function createWorker({ fetcher = (...args) => fetch(...args), clock = Da
         config = configuration(env); const url = new URL(request.url), now = clock();
         if (url.origin !== config.server) throw failure(400, 'BAD_REQUEST', 'Dirección inválida.');
         if (url.pathname === '/oauth/callback' && request.method === 'GET') response = await callback(request, url, env, config, now, fetcher);
+        else if (url.pathname === '/oauth/launch' && request.method === 'GET') response = await launchAuthorization(request, url, env, config, now);
         else if (url.pathname === '/oauth/continue' && request.method === 'GET') response = await continueAuthorization(request, url, env, config, now);
         else {
           if (origin !== config.app) throw failure(403, 'ORIGIN', 'Origen no autorizado.');
