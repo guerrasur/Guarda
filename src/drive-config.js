@@ -3,4 +3,4 @@
 export const GOOGLE_CLIENT_ID = '613370054779-e57i4ngllcd5t1vdivgl7qpfodon7ro9.apps.googleusercontent.com';
 // Set only after deploying and checking the server. Empty keeps the existing
 // integration operational while the persistent service is being configured.
-export const DRIVE_BROKER_URL = '';
+export const DRIVE_BROKER_URL = 'https://guarda-drive.luchoguerra33.workers.dev';
