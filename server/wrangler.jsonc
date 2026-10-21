@@ -13,7 +13,7 @@
   "d1_databases": [{
     "binding": "DB",
     "database_name": "guarda-drive",
-    "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+    "database_id": "7f37b18e-64e8-4e2f-ad26-63be61f7e3eb",
     "migrations_dir": "migrations"
   }],
   "triggers": { "crons": ["0 4 * * *"] }
