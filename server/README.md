@@ -1,6 +1,6 @@
 # Conexión persistente de Guarda con Drive
 
-Estado: servicio de conexión persistente configurado con Cloudflare Workers Free y D1 y URL pública en `src/drive-config.js`. El código 0.7.3 agrega un paso de navegación de primer nivel y diagnóstico de errores de autorización. **El Worker actualizado debe volver a desplegarse** y la autorización real de Google debe verificarse antes de confirmar que la conexión está solucionada. No es necesario reiniciar cuentas, borrar notas ni cambiar la clave de cifrado.
+Estado: servicio de conexión persistente configurado con Cloudflare Workers Free y D1 y URL pública en `src/drive-config.js`. El código 0.7.4 agrega una URL directa `/oauth/launch` protegida por comprobante de un solo uso para evitar que la PWA instalada en iOS quede en `about:blank`; mantiene la ruta de formulario anterior por compatibilidad. El código 0.7.3 agrega un paso de navegación de primer nivel y diagnóstico de errores de autorización. **El Worker actualizado debe volver a desplegarse** y la autorización real de Google debe verificarse antes de confirmar que la conexión está solucionada. No es necesario reiniciar cuentas, borrar notas ni cambiar la clave de cifrado.
 
 ## Coste y alcance
 
