@@ -247,3 +247,13 @@ await test('closing begins its motion while storage is pending and restores the 
  try{const closing=$('editor-close').onclick();await until(()=>entered);assert.equal(animated,true);assert.equal($('editor-layer').hidden,false);release();await closing;assert.equal(restored.top,640);assert.equal(document.body.style.top,'');assert.equal(document.body.classList.contains('editor-open'),false);}
  finally{release?.();GuardaStore.prototype.putNote=original;$('editor').animate=oldAnimate;globalThis.scrollTo=oldScroll;globalThis.scrollY=oldY;}
 });
+
+await test('individual deletion of a selected note clears the selection bar',async()=>{
+ await create('Eliminar seleccionada');const n=(await store.allNotes()).find(n=>n.title==='Eliminar seleccionada');
+ const card=document.querySelector(`[data-note="${n.id}"]`);
+ card.querySelector('[data-action=select]').dispatchEvent(new window.Event('click',{bubbles:true}));
+ card.querySelector('[data-action=more]').dispatchEvent(new window.Event('click',{bubbles:true}));
+ $('popover').querySelector('[data-menu=trash]').dispatchEvent(new window.Event('click',{bubbles:true}));
+ await until(async()=>(await store.allNotes()).find(x=>x.id===n.id).deletedAt);
+ await until(()=>$('selection-bar').hidden);assert.equal(document.body.classList.contains('selecting-notes'),false);
+});

@@ -42,7 +42,7 @@ El servidor de QA usa HTTP, por lo que su copia local incluye únicamente un
 adaptador de `crypto.randomUUID` para ese entorno; no se publica ese adaptador.
 No equivale a una prueba en Safari/iPhone físico ni de OAuth real.
 
-## v0.7.10 · gestos y continuidad
+## v0.7.10–0.7.11 · gestos y continuidad
 
 - Mantener 450 ms selecciona la nota con contorno, sin tic visible ni cambio
   de tamaño. Mover más de 12 px después de la pulsación inicia el arrastre y
@@ -64,3 +64,6 @@ sin reemplazo de DOM, separación pulsación/arrastre, swipe sin selección,
 cierre concurrente con guardado, restauración de scroll y cancelación de
 fotogramas retenidos. No se verificó en iPhone físico ni se acreditó QA visual:
 este entorno no dispone de binarios de navegador para Playwright.
+
+La selección se limpia también al archivar o eliminar una nota seleccionada
+mediante una acción individual o arrastre, sin dejar una barra vacía activa.
