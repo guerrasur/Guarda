@@ -17,6 +17,9 @@ export function animate(element, frames, { duration = 220, ...options } = {}, en
     running.add(animation);
     active.set(element, running);
     return animation.finished.catch(() => {}).finally(() => {
+      // Retained closing frames must remain cancellable after finishing,
+      // including a failed save and the next opening of the same note.
+      if (options.fill === 'forwards') return;
       running.delete(animation);
       if (!running.size) active.delete(element);
     });
@@ -80,6 +83,8 @@ export function animateBoard(area, before, env = globalThis) {
 }
 export function animateEditor(editor, origin, closing = false, env = globalThis) {
   cancelMotion(editor);
+  const layer = editor.parentElement?.classList.contains('modal-layer') ? editor.parentElement : null;
+  if (layer) cancelMotion(layer);
   const rect = editor.getBoundingClientRect();
   // Keep the text readable during the transition, including full-screen iOS notes.
   const x = origin ? Math.max(-80, Math.min(80, origin.left + origin.width / 2 - rect.left - rect.width / 2)) : 0;
@@ -89,7 +94,7 @@ export function animateEditor(editor, origin, closing = false, env = globalThis)
   const mobile = env.innerWidth <= 600;
   const small = mobile ? { opacity: 0 } : { opacity: 0, transform: `translate(${x}px,${y}px) scale(.96)` };
   const full = mobile ? { opacity: 1 } : { opacity: 1, transform: 'translate(0,0) scale(1)' };
-  return animate(editor, closing ? [full, small] : [small, full], { duration: closing ? 150 : 240 }, env);
+  return animate(mobile && layer ? layer : editor, closing ? [full, small] : [small, full], { duration: closing ? 120 : 180, fill: closing ? 'forwards' : 'none' }, env);
 }
 export function animateSurface(element) {
   cancelMotion(element);

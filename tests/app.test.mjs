@@ -228,3 +228,22 @@ await test('remote attachment replacement invalidates cached previews including 
  try{await $('editor-pin').onclick();assert.equal(reads,0,'pinning must not invalidate active media before the editor closes');}finally{GuardaStore.prototype.getAttachment=originalRead;}
  await $('editor-close').onclick();assert.match(document.querySelector(`[data-note="${n.id}"]`).textContent,/Actualizado.pdf/);
 });
+
+await test('selection keeps the exact card and its child controls; clearing selection preserves them too',async()=>{
+ await create('Selección sin saltos');const n=(await store.allNotes()).find(n=>n.title==='Selección sin saltos');
+ const card=document.querySelector(`[data-note="${n.id}"]`),button=card.querySelector('[data-action=select]');
+ button.dispatchEvent(new window.Event('click',{bubbles:true}));assert.equal(card.classList.contains('selected'),true);
+ assert.equal(document.querySelector(`[data-note="${n.id}"]`),card);assert.equal(button.getAttribute('aria-checked'),'true');
+ $('selection-bar').querySelector('[data-action=clear-selection]').dispatchEvent(new window.Event('click',{bubbles:true}));
+ assert.equal(card.classList.contains('selected'),false);assert.equal(card.querySelector('[data-action=select]'),button);assert.equal(button.getAttribute('aria-checked'),'false');
+});
+await test('closing begins its motion while storage is pending and restores the board scroll position',async()=>{
+ const oldAnimate=$('editor').animate,oldScroll=globalThis.scrollTo,oldY=globalThis.scrollY;
+ const original=GuardaStore.prototype.putNote;let release,entered=false,animated=false,restored;
+ globalThis.scrollY=640;globalThis.scrollTo=options=>restored=options;
+ await $('new-note').onclick();input($('note-title'),'Volver fluido');
+ $('editor').animate=()=>{animated=true;return {finished:Promise.resolve(),cancel(){}};};
+ GuardaStore.prototype.putNote=async function(n){entered=true;await new Promise(r=>release=r);return original.call(this,n);};
+ try{const closing=$('editor-close').onclick();await until(()=>entered);assert.equal(animated,true);assert.equal($('editor-layer').hidden,false);release();await closing;assert.equal(restored.top,640);assert.equal(document.body.style.top,'');assert.equal(document.body.classList.contains('editor-open'),false);}
+ finally{release?.();GuardaStore.prototype.putNote=original;$('editor').animate=oldAnimate;globalThis.scrollTo=oldScroll;globalThis.scrollY=oldY;}
+});

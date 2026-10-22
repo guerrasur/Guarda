@@ -1,7 +1,7 @@
 import { icon } from './icons.js';
 // Touch Events let a normal swipe scroll, then prevent scrolling only after
 // the hold is recognised (including Safari, where native HTML drag is limited).
-export function bindNoteDrag(area,{onMove,onTrash,onError=console.error,onBusyChange=()=>{},env=globalThis}={}){
+export function bindNoteDrag(area,{onMove,onTrash,onLongPress,onError=console.error,onBusyChange=()=>{},env=globalThis}={}){
  const {document,window}=env;
  let gesture=null,timer=null,ghost=null,frame=null,target=null,after=false,native=null,committing=false,suppressUntil=0;
  const bin=document.createElement('div');bin.className='drag-trash';bin.hidden=true;bin.setAttribute('role','status');bin.innerHTML=icon('trash')+'<span>Soltá para eliminar</span>';document.body.append(bin);
@@ -31,8 +31,15 @@ export function bindNoteDrag(area,{onMove,onTrash,onError=console.error,onBusyCh
   if(speed&&!overTrash)window.scrollBy(0,speed);
   locate(x,y,card);frame=env.requestAnimationFrame(track);
  }
+ function lift(){
+  if(!gesture||ghost)return;
+  const {card}=gesture,rect=card.getBoundingClientRect();
+  showBin(card);document.body.classList.add('note-dragging');card.classList.add('drag-source');
+   ghost=card.cloneNode(true);ghost.removeAttribute('data-note');ghost.removeAttribute('draggable');ghost.removeAttribute('tabindex');ghost.setAttribute('aria-hidden','true');ghost.classList.remove('drag-source');ghost.classList.add('drag-ghost');
+   ghost.style.width=`${rect.width}px`;ghost.style.height=`${rect.height}px`;document.body.append(ghost);track();
+ }
  function cleanup(){
-  cancelTimer();if(frame!==null)env.cancelAnimationFrame(frame);frame=null;ghost?.remove();ghost=null;
+  cancelTimer();document.removeEventListener('touchmove',touchMove);if(frame!==null)env.cancelAnimationFrame(frame);frame=null;ghost?.remove();ghost=null;
   if(gesture){gesture.card.classList.remove('drag-source');if(gesture.draggable===null)gesture.card.removeAttribute('draggable');else gesture.card.setAttribute('draggable',gesture.draggable);}
   clearTarget();markTrash(false);bin.hidden=true;gesture=null;
   document.body.classList.remove('note-dragging');
@@ -51,32 +58,34 @@ export function bindNoteDrag(area,{onMove,onTrash,onError=console.error,onBusyCh
   if(event.touches.length!==1){if(gesture)cancel();return;}
   if(gesture||committing)return;
   const card=cardOf(event.target);if(!card||interactive(event.target))return;
+  suppressUntil=0; // A fresh touch is intentional, not the delayed click from a hold.
   const p=event.touches[0],rect=card.getBoundingClientRect();
+  document.addEventListener('touchmove',touchMove,{passive:false});
   gesture={id:p.identifier,card,x:p.clientX,y:p.clientY,startX:p.clientX,startY:p.clientY,dx:p.clientX-rect.left,dy:p.clientY-rect.top,draggable:card.getAttribute('draggable'),active:false};
   // Suppress Safari native image/card dragging while this touch gesture owns it.
   card.setAttribute('draggable','false');
   timer=env.setTimeout(()=>{
    if(!gesture||!card.isConnected){cleanup();return;}
-   gesture.active=true;showBin(card);onBusyChange(true);document.body.classList.add('note-dragging');card.classList.add('drag-source');
-   ghost=card.cloneNode(true);ghost.removeAttribute('data-note');ghost.removeAttribute('draggable');ghost.removeAttribute('tabindex');ghost.setAttribute('aria-hidden','true');ghost.classList.remove('drag-source');ghost.classList.add('drag-ghost');
-   ghost.style.width=`${rect.width}px`;ghost.style.height=`${rect.height}px`;document.body.append(ghost);track();
+   gesture.active=true;onBusyChange(true);onLongPress?.(card.dataset.note);
+   if(onLongPress)return;
+   lift();
   },450);
  },{passive:true});
  document.addEventListener('touchstart',event=>{if(gesture&&event.touches.length!==1)cancel();},{passive:true});
- document.addEventListener('touchmove',event=>{
+ function touchMove(event){
   if(!gesture)return;
   if(event.touches.length!==1){cancel();return;}
   const p=pointOf(event);if(!p)return;
   gesture.x=p.clientX;gesture.y=p.clientY;
-  if(gesture.active){event.preventDefault();locate(p.clientX,p.clientY,gesture.card);}
+  if(gesture.active){event.preventDefault();if(Math.hypot(p.clientX-gesture.startX,p.clientY-gesture.startY)>12)lift();if(ghost)locate(p.clientX,p.clientY,gesture.card);}
   else if(Math.hypot(p.clientX-gesture.startX,p.clientY-gesture.startY)>10)cleanup();
- },{passive:false});
+ }
  document.addEventListener('touchend',event=>{
   if(!gesture)return;
   const p=[...(event.changedTouches||[])].find(t=>t.identifier===gesture.id);if(!p)return;
   const {active,card}=gesture;
-  if(active)locate(p.clientX,p.clientY,card);
-  if(active){event.preventDefault();suppressUntil=Date.now()+800;const destination=target,insertAfter=after,remove=overTrash;cleanup();commit(card,destination,insertAfter,remove);}
+  if(active&&ghost)locate(p.clientX,p.clientY,card);
+  if(active){event.preventDefault();suppressUntil=Date.now()+800;const destination=target,insertAfter=after,remove=overTrash,dragged=!!ghost;cleanup();if(dragged)commit(card,destination,insertAfter,remove);else onBusyChange(false);}
   else cleanup();
  },{passive:false});
  document.addEventListener('touchcancel',()=>{if(gesture)cancel();});

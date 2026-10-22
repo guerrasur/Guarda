@@ -162,3 +162,24 @@ main { transition: margin-left var(--motion-normal) var(--ease-out); }
 @keyframes bin-in { from { opacity: 0; translate: 0 12px; } to { opacity: 1; translate: 0 0; } }
 
 .update-banner{position:fixed;z-index:160;top:calc(76px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);width:max-content;max-width:calc(100vw - 24px);display:flex;align-items:center;gap:16px;padding:12px 16px;border:1px solid var(--line);border-radius:14px;background:var(--surface);color:var(--text);box-shadow:var(--shadow);font-size:14px}.update-banner span{max-width:36em;line-height:1.4}.update-banner button{flex-shrink:0;border-radius:20px;background:var(--active);color:var(--text);padding:10px 16px;font-weight:600;min-height:44px}@media(max-width:600px){.update-banner{top:calc(132px + env(safe-area-inset-top,0px));gap:10px;padding:10px 12px;font-size:13px}}
+
+/* Holds select without changing card geometry or leaving sticky touch hover ticks. */
+.note-card.selected{border-width:1px;padding:16px 16px 4px;outline:2px solid var(--text);outline-offset:-2px}
+.note-card .card-select{opacity:0;pointer-events:none;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.note-card .card-select:focus-visible{opacity:1;pointer-events:auto;width:32px;height:32px;clip-path:none;top:6px;left:6px}
+.selecting-notes .note-card{cursor:pointer}
+.selecting-notes .note-card .card-toolbar,.selecting-notes .note-card .card-pin{visibility:hidden;pointer-events:none}
+body.editor-open{position:fixed;inset-inline:0;width:100%;overflow:hidden}
+.modal-layer{-webkit-overflow-scrolling:touch;scrollbar-gutter:stable}
+@media(hover:none){
+ .note-card:hover{box-shadow:none}
+ .note-card .card-toolbar{display:none}
+ .note-card{padding-bottom:16px;-webkit-tap-highlight-color:transparent}
+ .note-card.selected{padding-bottom:16px}
+ .card-pin:not([aria-pressed=true]){visibility:hidden;pointer-events:none}
+}
+@media(prefers-reduced-motion:reduce){
+ .note-card,.card-toolbar,.card-select,.card-pin,.icon-button,.text-button,main,.sidebar{transition:none}
+}
+
+html{scrollbar-gutter:stable}

@@ -14,10 +14,11 @@ test('zoom gestures are cancelled while one-finger scrolling and normal wheel sc
     return prevented;
   };
   for (const name of ['gesturestart','gesturechange','gestureend']) assert.equal(dispatch(name), true);
-  for (const name of ['touchstart','touchmove']) {
+  for (const name of ['touchstart']) {
     assert.equal(dispatch(name, { touches: [{}] }), false);
     assert.equal(dispatch(name, { touches: [{}, {}] }), true);
   }
+  assert.equal(listeners.has('touchmove'),false,'ordinary scrolling has no global blocking move listener');
   assert.equal(dispatch('wheel', { ctrlKey: false }), false);
   assert.equal(dispatch('wheel', { ctrlKey: true }), true);
 });

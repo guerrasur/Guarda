@@ -60,3 +60,9 @@ test('departing notes are inert, do not duplicate IDs and clean up after the ani
   const ghost=document.querySelector('.motion-departure');assert.ok(ghost);assert.equal(ghost.inert,true);assert.equal(ghost.getAttribute('aria-hidden'),'true');assert.equal(document.querySelectorAll('[data-note],[id]').length,0);
   finish();await new Promise(resolve=>setImmediate(resolve));assert.equal(document.querySelector('.motion-departure'),null);
 });
+
+test('finished closing frames can still be cancelled on a save failure or next opening',async()=>{
+ const element=card('editor');const closing=animateEditor(element,rect(),true,fixture());
+ element.calls[0].animation.finish();await closing;cancelMotion(element);
+ assert.equal(element.calls[0].animation.cancelled,true);
+});

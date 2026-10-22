@@ -4,11 +4,11 @@ export function lockViewportZoom(target = document) {
   for (const name of ['gesturestart', 'gesturechange', 'gestureend']) {
     target.addEventListener(name, prevent, { passive: false });
   }
-  for (const name of ['touchstart', 'touchmove']) {
-    target.addEventListener(name, event => {
+  // CSS touch-action and Safari gesture events handle zoom during movement.
+  // Avoid a permanent blocking touchmove listener on every scroll frame.
+  target.addEventListener('touchstart', event => {
       if (event.touches?.length > 1) event.preventDefault();
-    }, { passive: false });
-  }
+  }, { passive: false });
   target.addEventListener('wheel', event => {
     if (event.ctrlKey) event.preventDefault();
   }, { passive: false });

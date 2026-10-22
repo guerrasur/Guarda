@@ -1,11 +1,11 @@
 import test from 'node:test';import assert from 'node:assert/strict';import {parseHTML} from 'linkedom';import {bindNoteDrag} from '../src/note-drag.js';
-function setup(){
+function setup({onLongPress}={}){
  const {document,window}=parseHTML('<html><body><header class="header"></header><div id="area"><div class="notes-grid"><article data-note="a" draggable="true"><h3>A</h3><button>Fijar</button></article><article data-note="b">B</article></div><div class="notes-grid"><article data-note="p">Fijada</article></div></div></body></html>');
  const area=document.getElementById('area'),a=area.querySelector('[data-note=a]'),b=area.querySelector('[data-note=b]'),p=area.querySelector('[data-note=p]');
  a.getBoundingClientRect=()=>({left:20,top:200,width:160,height:120});b.getBoundingClientRect=()=>({left:200,top:200,width:160,height:120});document.querySelector('header').getBoundingClientRect=()=>({bottom:100});let hit=b;
  document.elementFromPoint=()=>hit;const timers=new Map(),frames=new Map(),moves=[],deleted=[],busy=[],scroll=[];let sequence=0;
  const env={document,window:{innerHeight:800,scrollBy:(x,y)=>scroll.push(y)},setTimeout:fn=>{const id=++sequence;timers.set(id,fn);return id;},clearTimeout:id=>timers.delete(id),requestAnimationFrame:fn=>{const id=++sequence;frames.set(id,fn);return id;},cancelAnimationFrame:id=>frames.delete(id)};
- bindNoteDrag(area,{env,onMove:async(...args)=>moves.push(args),onTrash:async id=>deleted.push(id),onBusyChange:v=>busy.push(v),onError:e=>{throw e;}});
+ bindNoteDrag(area,{env,onLongPress,onMove:async(...args)=>moves.push(args),onTrash:async id=>deleted.push(id),onBusyChange:v=>busy.push(v),onError:e=>{throw e;}});
  function event(target,type,{x=40,y=240,touches=1}={}){const e=new window.Event(type,{bubbles:true,cancelable:true});Object.assign(e,{touches:type==='touchend'?[]:Array.from({length:touches},(_,identifier)=>({identifier,clientX:x,clientY:y})),changedTouches:[{identifier:0,clientX:x,clientY:y}],clientX:x,clientY:y});target.dispatchEvent(e);return e;}
  const bin=document.querySelector('.drag-trash');bin.getBoundingClientRect=()=>({left:170,right:230,top:720,bottom:780});
  return {document,area,a,b,p,moves,deleted,bin,busy,scroll,event,hit:card=>hit=card,hold:()=>{for(const [id,fn] of [...timers]){timers.delete(id);fn();}},frame:()=>{for(const [id,fn] of [...frames]){frames.delete(id);fn();}}};
@@ -51,4 +51,22 @@ test('mouse drop outside notes reaches trash, while cancellation never deletes',
 });
 test('notes already in trash never expose the delete target',()=>{
  const f=setup();f.a.dataset.deleted='true';f.event(f.a,'touchstart');f.hold();assert.equal(f.bin.hidden,true);f.event(f.document,'touchend',{x:200,y:750});assert.deepEqual(f.deleted,[]);
+});
+
+test('holding selects in place; only moving after the hold starts dragging',async()=>{
+ const selected=[],f=setup({onLongPress:id=>selected.push(id)});
+ f.event(f.a,'touchstart');f.hold();assert.deepEqual(selected,['a']);
+ assert.equal(f.document.querySelector('.drag-ghost'),null);assert.equal(f.bin.hidden,true);
+ assert.equal(f.a.classList.contains('drag-source'),false);
+ f.event(f.document,'touchend');await Promise.resolve();assert.deepEqual(f.moves,[]);assert.equal(f.busy.at(-1),false);
+ f.event(f.a,'touchstart');f.hold();
+ assert.equal(f.event(f.document,'touchmove',{x:230,y:310}).defaultPrevented,true);
+ assert.ok(f.document.querySelector('.drag-ghost'));assert.equal(f.bin.hidden,false);
+ f.event(f.document,'touchend',{x:230,y:310});await Promise.resolve();assert.deepEqual(f.moves,[['a','b',true]]);
+});
+test('a swipe cancels selection and leaves subsequent scrolling unblocked',()=>{
+ const selected=[],f=setup({onLongPress:id=>selected.push(id)});
+ f.event(f.a,'touchstart');assert.equal(f.event(f.document,'touchmove',{y:290}).defaultPrevented,false);f.hold();
+ assert.deepEqual(selected,[]);assert.equal(f.event(f.document,'touchmove',{y:360}).defaultPrevented,false);
+ assert.equal(f.a.getAttribute('draggable'),'true');
 });
