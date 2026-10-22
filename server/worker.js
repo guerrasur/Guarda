@@ -10,6 +10,19 @@ const messages = {
   DRIVE_RETRYABLE: 'No se pudo renovar la conexión. Guarda volverá a intentarlo automáticamente.',
   DRIVE_PERMISSION: 'Google no concedió el acceso a los archivos de Guarda.',
 };
+// Only fixed, allowlisted diagnostics may reach the callback page. Never expose
+// provider descriptions, request bodies, tokens, SQL errors or secret values.
+const diagnostics = {
+  CLIENT: 'Google rechazó la credencial del servidor. Revisar GOOGLE_CLIENT_SECRET y que corresponda a GOOGLE_CLIENT_ID. Referencia: CLIENT.',
+  NETWORK: 'No se pudo comunicar el servidor con Google. Referencia: NETWORK.',
+  RESPONSE: 'Google devolvió una respuesta que Guarda no pudo interpretar. Referencia: RESPONSE.',
+  GOOGLE: 'Google no pudo atender la solicitud en este momento. Referencia: GOOGLE.',
+  TOKEN: 'No se pudo completar el intercambio de autorización con Google. Referencia: TOKEN.',
+  IDENTITY: 'No se pudo verificar la cuenta en Google Drive. Referencia: IDENTITY.',
+  ENCRYPT: 'No se pudo proteger la sesión en el servidor. Referencia: ENCRYPT.',
+  STORAGE: 'No se pudo guardar la conexión en la base de datos de Cloudflare. Referencia: STORAGE.',
+};
+const diagnosticFailure = diagnostic => { throw Object.assign(failure(503, 'DRIVE_RETRYABLE', messages.DRIVE_RETRYABLE), { diagnostic }); };
 const json = (value, status = 200) => Response.json(value, { status });
 const fail = (status, code) => { throw failure(status, code, messages[code] || 'No se pudo completar la conexión.'); };
 
@@ -38,14 +51,16 @@ async function body(request) {
 async function google(url, options, fetcher) {
   let response;
   try { response = await fetcher(url, { ...options, redirect: 'error', signal: AbortSignal.timeout(20000) }); }
-  catch { fail(503, 'DRIVE_RETRYABLE'); }
-  let data; try { data = await response.json(); } catch { fail(503, 'DRIVE_RETRYABLE'); }
+  catch { diagnosticFailure('NETWORK'); }
+  let data; try { data = await response.json(); } catch { diagnosticFailure('RESPONSE'); }
   if (!response.ok) {
     // Invalid client/configuration must never erase the user's saved grant.
-    if (response.status >= 500 || response.status === 429 || ['invalid_client', 'temporarily_unavailable'].includes(data.error)) fail(503, 'DRIVE_RETRYABLE');
+    if (data?.error === 'invalid_client') diagnosticFailure('CLIENT');
+    if (response.status >= 500 || response.status === 429 || data?.error === 'temporarily_unavailable') diagnosticFailure('GOOGLE');
     if (data.error === 'invalid_grant' || response.status === 401) fail(401, 'DRIVE_AUTH');
     fail(403, 'DRIVE_PERMISSION');
   }
+  if (!data || typeof data !== 'object') diagnosticFailure('RESPONSE');
   return data;
 }
 async function exchange(parameters, env, fetcher) {
@@ -143,18 +158,21 @@ async function callback(request, url, env, config, now, fetcher) {
   // Claim once, before contacting Google; replay cannot mint another session.
   const row = await env.DB.prepare("UPDATE authorizations SET status='exchanging' WHERE id=? AND status='pending' AND expires>? RETURNING *").bind(id, now).first();
   if (!row) return callbackPage(false, 'Esta autorización ya fue procesada. Volvé a Guarda para comprobar la conexión.');
-  let success = false, payload, explanation = '';
+  let success = false, payload, explanation = '', stage = 'TOKEN';
   try {
     if (url.searchParams.has('error')) fail(401, 'DRIVE_AUTH');
     const code = url.searchParams.get('code'); if (!code || code.length > 4096) fail(401, 'DRIVE_AUTH');
     const tokens = await exchange({ grant_type: 'authorization_code', code, redirect_uri: config.callback, code_verifier: pending.verifier }, env, fetcher);
     if (typeof tokens.refresh_token !== 'string' || !tokens.refresh_token) fail(401, 'DRIVE_AUTH');
+    stage = 'IDENTITY';
     const user = await identity(tokens.access_token, fetcher);
     if (pending.accountId && pending.accountId !== user.permissionId) fail(409, 'DRIVE_ACCOUNT');
+    stage = 'ENCRYPT';
     const session = random(), hash = await digest(session);
     const grant = await seal({ refreshToken: tokens.refresh_token, accessToken: tokens.access_token, accessExpires: now + (Number(tokens.expires_in) - 60) * 1000, user }, env.ENCRYPTION_KEY, 'session:' + hash);
     payload = await seal({ session, user }, env.ENCRYPTION_KEY, 'authorization:' + id);
     // Both writes commit together. D1 batch rolls back if either write fails.
+    stage = 'STORAGE';
     await env.DB.batch([
       env.DB.prepare('INSERT INTO sessions(token_hash,account_id,payload,expires) VALUES(?,?,?,?)').bind(hash, user.permissionId, grant, now + TEN_MINUTES),
       env.DB.prepare("UPDATE authorizations SET status='complete',payload=? WHERE id=?").bind(payload, id),
@@ -162,9 +180,16 @@ async function callback(request, url, env, config, now, fetcher) {
     success = true;
   } catch (error) {
     const code = messages[error.code] ? error.code : 'DRIVE_RETRYABLE';
-    explanation = messages[code];
-    payload = await seal({ error: { code, message: messages[code] } }, env.ENCRYPTION_KEY, 'authorization:' + id);
-    await env.DB.prepare("UPDATE authorizations SET status='failed',payload=? WHERE id=?").bind(payload, id).run();
+    explanation = code === 'DRIVE_RETRYABLE'
+      ? (diagnostics[error.diagnostic] || diagnostics[stage]) + ' Volvé a Guarda para iniciar un nuevo intento. Tus notas siguen guardadas en el dispositivo.'
+      : messages[code];
+    try {
+      payload = await seal({ error: { code, message: explanation } }, env.ENCRYPTION_KEY, 'authorization:' + id);
+      await env.DB.prepare("UPDATE authorizations SET status='failed',payload=? WHERE id=?").bind(payload, id).run();
+    } catch {
+      // A storage outage must not replace the useful callback with generic JSON.
+      explanation += ' Tampoco se pudo registrar el resultado del intento en el servidor.';
+    }
   }
   const response = callbackPage(success, explanation);
   response.headers.set('Set-Cookie', `__Host-guarda-flow-${id}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`);

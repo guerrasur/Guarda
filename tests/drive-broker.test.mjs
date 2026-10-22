@@ -136,3 +136,32 @@ test('an OAuth result abandoned before first device use cannot retain a renewabl
   f.advance(600001); await f.worker.scheduled({}, f.env);
   assert.equal(f.sql.prepare('SELECT count(*) AS n FROM sessions').get().n, 0);
 });
+
+test('callback identifies credential and network failures without promising automatic retries', async t => {
+  for (const [mode, reference] of [['invalid_client', 'CLIENT'], ['network', 'NETWORK'], ['temporary', 'GOOGLE']]) {
+    const f = await brokerFixture(t), flow = await f.begin(), start = await f.start(flow);
+    f.mode(mode);
+    const response = await f.callback(flow, start.headers.get('Set-Cookie').split(';')[0]);
+    const html = await response.text(), result = await (await f.poll(flow)).json();
+    assert.match(html, new RegExp('Referencia: ' + reference));
+    assert.match(result.error.message, new RegExp('Referencia: ' + reference));
+    assert.equal(result.error.code, 'DRIVE_RETRYABLE');
+    assert.doesNotMatch(html, /automáticamente|test-only-client-secret|google-one-use-code|google-refresh-/);
+    assert.equal(f.sql.prepare('SELECT count(*) AS n FROM sessions').get().n, 0);
+  }
+});
+
+test('callback reports storage failure even when persisting the failure also fails', async t => {
+  const f = await brokerFixture(t), flow = await f.begin(), start = await f.start(flow);
+  f.env.DB.batch = async () => { throw Error('private database details'); };
+  const prepare = f.env.DB.prepare;
+  f.env.DB.prepare = query => {
+    if (query.includes("status='failed'")) throw Error('private database details');
+    return prepare(query);
+  };
+  const response = await f.callback(flow, start.headers.get('Set-Cookie').split(';')[0]);
+  const html = await response.text();
+  assert.match(html, /Referencia: STORAGE/);
+  assert.match(html, /Tampoco se pudo registrar/);
+  assert.doesNotMatch(html, /private database details|google-refresh-|google-access-|automáticamente/);
+});

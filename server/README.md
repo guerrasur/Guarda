@@ -2,6 +2,10 @@
 
 Estado: servicio de conexión persistente configurado con Cloudflare Workers Free y D1 y URL pública en `src/drive-config.js`. El código 0.7.4 agrega una URL directa `/oauth/launch` protegida por comprobante de un solo uso para evitar que la PWA instalada en iOS quede en `about:blank`; mantiene la ruta de formulario anterior por compatibilidad. El código 0.7.3 agrega un paso de navegación de primer nivel y diagnóstico de errores de autorización. **El Worker actualizado debe volver a desplegarse** y la autorización real de Google debe verificarse antes de confirmar que la conexión está solucionada. No es necesario reiniciar cuentas, borrar notas ni cambiar la clave de cifrado.
 
+## Diagnóstico del consentimiento (0.7.6)
+
+El callback distingue credenciales rechazadas (CLIENT), comunicación (NETWORK), respuesta inválida (RESPONSE), servicio Google (GOOGLE), intercambio de autorización (TOKEN), identidad de Drive (IDENTITY), cifrado (ENCRYPT) y guardado D1 (STORAGE). Son mensajes fijos: no se publican valores secretos ni errores originales. Un intento fallido requiere iniciar otro desde Guarda; no promete recuperarlo automáticamente. Estos mensajes requieren desplegar el Worker actualizado, no solo GitHub Pages.
+
 ## Coste y alcance
 
 Usar exclusivamente **Cloudflare Workers Free + D1 Free**. No contratar Workers Paid, R2, Firebase Functions ni pruebas de pago. Workers Free incluye 100.000 solicitudes diarias; D1 Free incluye 5 millones de filas leídas y 100.000 escritas por día. Al exceder los límites gratuitos fallan las operaciones; las notas siguen guardándose localmente. Verificar estos límites y el plan de la cuenta antes de desplegar.
