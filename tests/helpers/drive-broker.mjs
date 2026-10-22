@@ -21,10 +21,13 @@ export async function brokerFixture(t) {
   const calls = [];
   const env = { DB: db, ENCRYPTION_KEY: random(), GOOGLE_CLIENT_SECRET: 'test-only-client-secret', GOOGLE_CLIENT_ID, APP_ORIGIN: 'https://guerrasur.github.io', PUBLIC_ORIGIN: 'https://guarda-drive.test' };
   const fetcher = async (url, options) => {
+    // Match the edge runtime, which rejects redirect:error before network I/O.
+    if (!['follow', 'manual'].includes(options.redirect)) throw new TypeError('Invalid redirect value');
     calls.push({ url, options });
     if (url === 'https://oauth2.googleapis.com/token') {
       const parameters = new URLSearchParams(options.body);
       if (parameters.get('grant_type') === 'refresh_token') { if (gate) await gate; }
+      if (mode === 'redirect') return new Response(null, { status: 302, headers: { Location: 'https://unexpected.example.test/' } });
       if (mode === 'network') throw new TypeError('Offline');
       if (mode === 'invalid_grant') return Response.json({ error: 'invalid_grant' }, { status: 400 });
       if (mode === 'invalid_client') return Response.json({ error: 'invalid_client' }, { status: 401 });

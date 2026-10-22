@@ -15,6 +15,7 @@ const messages = {
 const diagnostics = {
   CLIENT: 'Google rechazó la credencial del servidor. Revisar GOOGLE_CLIENT_SECRET y que corresponda a GOOGLE_CLIENT_ID. Referencia: CLIENT.',
   NETWORK: 'No se pudo comunicar el servidor con Google. Referencia: NETWORK.',
+  REDIRECT: 'Google devolvió una redirección inesperada. Referencia: REDIRECT.',
   RESPONSE: 'Google devolvió una respuesta que Guarda no pudo interpretar. Referencia: RESPONSE.',
   GOOGLE: 'Google no pudo atender la solicitud en este momento. Referencia: GOOGLE.',
   TOKEN: 'No se pudo completar el intercambio de autorización con Google. Referencia: TOKEN.',
@@ -50,8 +51,11 @@ async function body(request) {
 }
 async function google(url, options, fetcher) {
   let response;
-  try { response = await fetcher(url, { ...options, redirect: 'error', signal: AbortSignal.timeout(20000) }); }
+  try { response = await fetcher(url, { ...options, redirect: 'manual', signal: AbortSignal.timeout(20000) }); }
   catch { diagnosticFailure('NETWORK'); }
+  // workerd rejects redirect:error before sending the request. Manual mode
+  // preserves the no-redirect policy without forwarding OAuth credentials.
+  if (response.status >= 300 && response.status < 400) diagnosticFailure('REDIRECT');
   let data; try { data = await response.json(); } catch { diagnosticFailure('RESPONSE'); }
   if (!response.ok) {
     // Invalid client/configuration must never erase the user's saved grant.
