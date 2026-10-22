@@ -12,7 +12,7 @@ async function fixture(t, saved = true) {
   let formWork;
   const env = {
     crypto, AbortController, document, navigator: { onLine: true }, clearTimeout,
-    setTimeout: (fn, ms) => setTimeout(fn, ms === 1500 || ms === 5000 ? 0 : ms),
+    setTimeout: (fn, ms) => setTimeout(fn, ms >= 3000 && ms < 15000 ? 0 : ms),
     open(url, name) {
       const popup = { closed: false, document: {}, close() { this.closed = true; }, name, url };
       popups.push(popup);
@@ -58,7 +58,7 @@ test('a fresh page restores durable authorization, renews expired access and sen
   assert.ok(f.calls.some(call => call.url.startsWith('https://www.googleapis.com/drive/v3/files?')));
 });
 test('one authorization from a click establishes a durable session without persisting Google tokens', async t => {
-  const f = await fixture(t, false); await f.client.prepare(GOOGLE_CLIENT_ID);
+  const f = await fixture(t, false); await f.client.prepare(GOOGLE_CLIENT_ID, { accountId: 'owner' });
   const connecting = f.client.connect({ accountId: 'owner' }); assert.equal(f.popups.length, 1, 'window opens synchronously');
   const user = await connecting; await f.formWork(); assert.equal(user.permissionId, 'owner');
   const launched = new URL(f.popups[0].url);
@@ -85,16 +85,16 @@ test('a stale pending poll arriving after the callback closes the popup still co
     }
     return response;
   };
-  await f.client.prepare(GOOGLE_CLIENT_ID);
+  await f.client.prepare(GOOGLE_CLIENT_ID, { accountId: 'owner' });
   const user = await f.client.connect({ accountId: 'owner' });
   assert.equal(stalePending, true); assert.equal(user.permissionId, 'owner');
   assert.equal(await f.makeClient().resumeSession({ accountId: 'owner' }), true);
 });
 test('blocked popups do not start authorization and cannot leave a stuck pending state', async t => {
-  const f = await fixture(t, false); await f.client.prepare(GOOGLE_CLIENT_ID);
+  const f = await fixture(t, false); await f.client.prepare(GOOGLE_CLIENT_ID, { accountId: 'owner' });
   const callsBefore = f.calls.length;
   f.env.open = () => null;
-  await assert.rejects(f.client.connect(), cause => cause.code === 'DRIVE_INTERACTION');
+  await assert.rejects(f.client.connect({ accountId: 'owner' }), cause => cause.code === 'DRIVE_INTERACTION');
   assert.equal(f.client.pending, null); assert.equal(f.calls.length, callsBefore);
 });
 test('an isolated Google window reporting closed cannot cancel consent before the server result', async t => {
@@ -112,7 +112,7 @@ test('an isolated Google window reporting closed cannot cancel consent before th
     }
     return response;
   };
-  await f.client.prepare(GOOGLE_CLIENT_ID);
+  await f.client.prepare(GOOGLE_CLIENT_ID, { accountId: 'owner' });
   try {
     const user = await f.client.connect({ accountId: 'owner' });
     assert.equal(user.permissionId, 'owner');
@@ -130,8 +130,8 @@ test('an abandoned authorization still times out without saving a device session
     if (url.includes('/v1/authorizations/')) now += 200000;
     return response;
   };
-  await f.client.prepare(GOOGLE_CLIENT_ID);
-  await assert.rejects(f.client.connect(), cause => cause.code === 'DRIVE_INTERACTION' && /Google no respondió/.test(cause.message));
+  await f.client.prepare(GOOGLE_CLIENT_ID, { accountId: 'owner' });
+  await assert.rejects(f.client.connect({ accountId: 'owner' }), cause => cause.code === 'DRIVE_INTERACTION' && /Google no respondió/.test(cause.message));
   assert.equal(f.client.pending, null);
   assert.equal(f.values.has('drive-broker-session'), false);
 });
@@ -141,7 +141,9 @@ test('network loss retains the durable session; revoked permission requires auth
   await assert.rejects(f.client.resumeSession({ accountId: 'owner' }), cause => cause.code === 'DRIVE_RETRYABLE'); assert.ok(f.values.get('drive-broker-session'));
   f.env.fetch = fetcher; f.broker.advance(3600000); f.broker.mode('temporary');
   await assert.rejects(f.client.resumeSession({ accountId: 'owner' }), cause => cause.code === 'DRIVE_RETRYABLE'); assert.ok(f.values.get('drive-broker-session'));
-  f.broker.mode(''); await f.client.resumeSession({ accountId: 'owner' }); assert.equal(f.popups.length, 0);
+  f.broker.mode('');
+  let now = Date.now() + 61000; t.mock.method(Date, 'now', () => now);
+  await f.client.resumeSession({ accountId: 'owner' }); assert.equal(f.popups.length, 0);
   f.client.expires = 0; f.broker.advance(3600000); f.broker.mode('invalid_grant');
   await assert.rejects(f.client.resumeSession({ accountId: 'owner' }), cause => cause.code === 'DRIVE_AUTH'); assert.equal(f.values.get('drive-broker-session'), null);
   assert.equal(await f.client.resumeSession({ accountId: 'owner' }), false); assert.equal(f.popups.length, 0);
@@ -156,6 +158,7 @@ test('concurrent Drive operations share renewal, and a real Google 401 triggers 
   const f = await fixture(t); f.broker.advance(3600000);
   await Promise.all([f.client.listSnapshots(), f.client.listSnapshots()]);
   assert.equal(f.calls.filter(call => call.url.endsWith('/v1/access-token')).length, 1);
+  f.broker.advance(61000);
   const original = f.env.fetch; let rejected = false;
   f.env.fetch = async (url, options) => {
     if (!rejected && url.startsWith('https://www.googleapis.com/')) { rejected = true; return Response.json({}, { status: 401 }); }
@@ -185,4 +188,16 @@ test('a broker cannot switch the account of an existing set of notes', async t =
   f.env.fetch = async (url, options) => url.endsWith('/v1/access-token') ? Response.json({ accessToken: 'wrong-account', expires: Date.now() + 3600000, user: { permissionId: 'another' } }) : original(url, options);
   await assert.rejects(f.client.listSnapshots(), cause => cause.code === 'DRIVE_ACCOUNT');
   assert.equal(f.client.connected, false); assert.equal(f.client.token, null); assert.equal(f.popups.length, 0);
+});
+
+test('maintenance HTML and Retry-After preserve credentials and suppress repeated API requests', async t => {
+  const f = await fixture(t), saved = structuredClone(f.values.get('drive-broker-session'));
+  let calls = 0, now = Date.now(); t.mock.method(Date, 'now', () => now);
+  const original = f.env.fetch;
+  f.env.fetch = async () => { calls++; return new Response('<h1>Temporarily unavailable</h1>', { status: 503, headers: { 'Retry-After': '120' } }); };
+  await assert.rejects(f.client.resumeSession({ accountId: 'owner' }), e => e.retryAfterMs === 120000);
+  await assert.rejects(f.client.resumeSession({ accountId: 'owner' }), e => e.code === 'DRIVE_RETRYABLE');
+  assert.equal(calls, 1); assert.deepEqual(f.values.get('drive-broker-session'), saved);
+  now += 120001; f.env.fetch = original;
+  assert.equal(await f.client.resumeSession({ accountId: 'owner' }), true);
 });

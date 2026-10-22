@@ -1,3 +1,4 @@
+import { retryDelay } from './retry.js';
 import { DriveSessionBridge } from './drive-session.js';
 import { DriveClient, driveFolderName } from './drive-client.js';
 import { PersistentDriveClient } from './drive-persistent.js';
@@ -6,7 +7,7 @@ import { GOOGLE_CLIENT_ID, DRIVE_BROKER_URL } from './drive-config.js';
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function initDrive({store,isBusy,onApplied,utility,closeUtility,showError,env=globalThis,brokerUrl=DRIVE_BROKER_URL}){
  const $=id=>env.document.getElementById(id);let clientId=GOOGLE_CLIENT_ID,timer=null,remembered=null,enabled=false,message='Drive sin conectar',currentState='hidden',changeVersion=0,flight=null,prepared=false,preparedId='',preparing=false,prepareFailed=false,backoff=3000,retryAt=0;
- const listeners=new Set();let prepareFlight=null,sessionCandidate=null,renewalAttempted=false,initialized=false,boundAccount=null;
+ const listeners=new Set();let retryCount=0,retriesPaused=false;let prepareFlight=null,sessionCandidate=null,renewalAttempted=false,initialized=false,boundAccount=null;
  const bridge=new DriveSessionBridge({env});
  const client=brokerUrl?new PersistentDriveClient({env,store,brokerUrl}):new DriveClient({env});
  const getState=()=>({connected:client.connected,enabled,user:client.user||remembered,state:currentState,message,working:!!flight||!!client.pending,preparing,folder:client.folder,folderName:driveFolderName(client.user||remembered)});
@@ -29,6 +30,7 @@ export function initDrive({store,isBusy,onApplied,utility,closeUtility,showError
  function offline(){if(enabled||client.user){status('Sin conexión a internet. Tus cambios están guardados en este dispositivo y se enviarán cuando vuelva la conexión.');indicator('offline',message);}return {offline:true};}
  function attempt(manual=false){
   if(flight)return flight;
+  if(manual){retryCount=0;retriesPaused=false;}else if(retriesPaused)return Promise.resolve({paused:true});
   if(!manual&&retryAt>Date.now())return Promise.resolve({scheduled:true});
   env.clearTimeout(timer);timer=null;retryAt=0;
   flight=runAttempt().finally(()=>{flight=null;emit();});emit();return flight;
@@ -71,14 +73,14 @@ export function initDrive({store,isBusy,onApplied,utility,closeUtility,showError
    preserveSession();
    if(isBusy())return defer();
    indicator('syncing','Sincronizando con Google Drive…');const started=changeVersion;
-   const result=await sync.sync();if(env.navigator?.onLine===false)return offline();backoff=3000;
+   const result=await sync.sync();if(env.navigator?.onLine===false)return offline();backoff=3000;retryCount=0;
    if(started===changeVersion)indicator('synced','Todo guardado en Google Drive');else {indicator('pending','Cambios pendientes de guardar en Google Drive');queueRetry();}return result;
   }catch(error){
    const code=error.code||error.cause?.code;
    if(code==='DRIVE_RETRYABLE'&&env.navigator?.onLine===false)return offline();
    if(['SYNC_DEFERRED','SYNC_LOCAL_CHANGED'].includes(code))return defer(true);
    status(error.message);
-   if(code==='DRIVE_RETRYABLE'){indicator('pending',message);queueRetry(Math.max(backoff,error.retryAfterMs||0));backoff=Math.min(backoff*2,60000);}
+   if(['DRIVE_RETRYABLE','DRIVE_LIMIT','DRIVE_MAINTENANCE','DRIVE_QUOTA'].includes(code)){indicator('pending',message);if(++retryCount<8){queueRetry(retryDelay(retryCount,error.retryAfterMs));}else{retriesPaused=true;status(message+' Se pausaron los reintentos. Usá Sincronizar ahora o volvé a abrir Guarda para reintentar.');}}
    else if(code==='DRIVE_AUTH'||code==='DRIVE_ACCOUNT'||!client.hasToken){sessionCandidate=null;await bridge.clear();indicator('reconnect',message);}
    else {env.clearTimeout(timer);timer=null;retryAt=0;indicator('error',message);}
    throw error;
@@ -88,7 +90,7 @@ export function initDrive({store,isBusy,onApplied,utility,closeUtility,showError
  store.addEventListener('change',event=>{if(event.detail.type!=='cloud-apply'&&event.detail.type!=='setting'&&!event.detail.id?.startsWith('drive-'))schedule();});
  const resume=()=>{if(client.connected&&currentState==='pending'&&!flight&&!retryAt)queueRetry();};
  env.setInterval(()=>{if(!env.document.hidden)background();},60000);
- env.window.addEventListener('online',()=>{backoff=3000;retryAt=0;env.clearTimeout(timer);client.flushRevocations?.().catch(()=>{});background();});
+ env.window.addEventListener('online',()=>{backoff=3000;retryCount=0;retriesPaused=false;retryAt=0;env.clearTimeout(timer);client.flushRevocations?.().catch(()=>{});background();});
  env.window.addEventListener('offline',()=>{env.clearTimeout(timer);timer=null;retryAt=0;changeVersion++;if(enabled){status('Sin conexión a internet. Tus cambios se conservan en este dispositivo.');indicator('offline',message);}});
  function preserveSession(){const session=enabled&&client.session(clientId);if(session)bridge.offer(session).catch(()=>{});}
  env.document.addEventListener('visibilitychange',()=>{if(!env.document.hidden)background();else preserveSession();});
@@ -109,7 +111,7 @@ export function initDrive({store,isBusy,onApplied,utility,closeUtility,showError
  function prepare(){
   if(prepared&&preparedId===clientId)return Promise.resolve();if(prepareFlight)return prepareFlight;
   preparing=true;prepareFailed=false;prepared=false;emit();const requestedId=clientId;
-  prepareFlight=client.prepare(requestedId).then(()=>{prepared=true;preparedId=requestedId;}).catch(error=>{prepareFailed=true;throw error;}).finally(()=>{preparing=false;prepareFlight=null;emit();});
+  prepareFlight=client.prepare(requestedId,{accountId:boundAccount||remembered?.permissionId||null,hint:remembered?.emailAddress||''}).then(()=>{prepared=true;preparedId=requestedId;}).catch(error=>{prepareFailed=true;throw error;}).finally(()=>{preparing=false;prepareFlight=null;emit();});
   return prepareFlight;
  }
  function connect({automatic=false}={}){
@@ -121,7 +123,7 @@ export function initDrive({store,isBusy,onApplied,utility,closeUtility,showError
   const authorization=client.connect({hint:(remembered||client.user)?.emailAddress||'',interactive:!automatic,accountId:boundAccount||remembered?.permissionId});indicator('connecting',message);
   return authorization.then(async user=>{
    await rememberIdentity(user);preserveSession();status('Conectado a '+(user.emailAddress||user.displayName));return attempt(true);
-  }).catch(async error=>{if(error.code==='DRIVE_RETRYABLE'){status(error.message);indicator('pending',message);if(!retryAt)queueRetry(backoff);throw error;}if(!client.hasToken){sessionCandidate=null;await bridge.clear();}status(error.message);indicator(client.connected?'error':'reconnect',message);throw error;}).finally(emit);
+  }).catch(async error=>{if(['DRIVE_RETRYABLE','DRIVE_LIMIT','DRIVE_MAINTENANCE','DRIVE_QUOTA'].includes(error.code)){status(error.message);indicator('pending',message);if(!retryAt)queueRetry(retryDelay(1,error.retryAfterMs));throw error;}if(!client.hasToken){sessionCandidate=null;await bridge.clear();}status(error.message);indicator(client.connected?'error':'reconnect',message);throw error;}).finally(emit);
  }
  async function open(){
   await ready;clientId=await store.getSetting('drive-client-id',GOOGLE_CLIENT_ID);const connected=client.connected;

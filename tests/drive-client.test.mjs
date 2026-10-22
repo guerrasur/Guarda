@@ -22,9 +22,9 @@ test('a timed out or cancelled authorization can be retried and late callbacks a
 test('Drive distinguishes temporary limits, missing files, network failures, denied permissions and expired authorization',async()=>{
  const f=setup();await f.client.prepare(id);await f.client.connect();
  for(const [status,reason,code] of [[429,'','DRIVE_RETRYABLE'],[503,'','DRIVE_RETRYABLE'],[403,'userRateLimitExceeded','DRIVE_RETRYABLE'],[404,'','DRIVE_RETRYABLE'],[403,'insufficientPermissions','DRIVE_PERMISSION']]){
-  f.fetch(async()=>Response.json({error:{errors:[{reason}]}},{status,headers:{'Retry-After':'12'}}));await assert.rejects(f.client.listSnapshots(),error=>error.code===code);assert.equal(f.client.connected,true);
+  f.client.retryUntil=0;f.fetch(async()=>Response.json({error:{errors:[{reason}]}},{status,headers:{'Retry-After':'12'}}));await assert.rejects(f.client.listSnapshots(),error=>error.code===code);assert.equal(f.client.connected,true);
  }
- f.fetch(async()=>{throw new TypeError('Failed to fetch');});await assert.rejects(f.client.listSnapshots(),error=>error.code==='DRIVE_RETRYABLE');assert.equal(f.client.connected,true);
+ f.client.retryUntil=0;f.fetch(async()=>{throw new TypeError('Failed to fetch');});await assert.rejects(f.client.listSnapshots(),error=>error.code==='DRIVE_RETRYABLE');assert.equal(f.client.connected,true);
  f.fetch(async()=>new Response(null,{status:401}));await assert.rejects(f.client.listSnapshots(),error=>error.code==='DRIVE_AUTH');assert.equal(f.client.connected,false);
 });
 test('dedicated folder uses the signed-in username, reuses and renames the legacy folder, and relocates snapshots',async()=>{

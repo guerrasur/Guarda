@@ -123,7 +123,7 @@ test('refresh leases serialize tabs and a concurrent disconnect cannot resurrect
 test('expired authorizations and rate limits are enforced and cleaned without retaining identities', async t => {
   const f = await brokerFixture(t), flow = await f.begin(); f.advance(600001);
   assert.equal((await f.poll(flow)).status, 401);
-  for (let i = 0; i < 10; i++) assert.equal((await f.begin()).status, 200);
+  for (let i = 0; i < 20; i++) assert.equal((await f.begin()).status, 200);
   assert.equal((await f.begin()).status, 429);
   f.advance(600001); await f.worker.scheduled({}, f.env);
   assert.equal(f.sql.prepare('SELECT count(*) AS n FROM authorizations').get().n, 0);

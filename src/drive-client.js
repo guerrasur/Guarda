@@ -1,3 +1,4 @@
+import { retryAfterMs, readBackupResponse, MAX_BACKUP_BYTES } from './retry.js';
 export const DRIVE_SCOPE='https://www.googleapis.com/auth/drive.file';
 const driveError=(message,code,extra={})=>Object.assign(new Error(message),{code,...extra});
 export function driveFolderName(user){const username=(user?.emailAddress?.split('@')[0]||user?.permissionId||'usuario').replace(/[\\/:*?"<>|]/g,'-').slice(0,120);return 'GuardaNotes-'+username;}
@@ -68,22 +69,23 @@ export class DriveClient{
  }
  expire(){this.token=null;this.expires=0;this.identityVerified=false;}
  disconnect(){this.expire();this.user=null;this.folder=null;this.rejectAuthorization(Error('Conexión cancelada. Podés volver a conectar.'));}
- async request(path,{method='GET',body,headers={},raw=false}={}){
+ async request(path,{method='GET',body,headers={},raw=false,backup=false}={}){
   if(!this.token||Date.now()>=this.expires){this.expire();throw driveError('La sesión de Drive venció. Tocá Reconectar para renovarla; tus notas siguen guardadas localmente.','DRIVE_AUTH');}
+  if(this.retryUntil>Date.now())throw driveError('Drive pidió una pausa. Tus cambios siguen guardados localmente.','DRIVE_RETRYABLE',{retryAfterMs:this.retryUntil-Date.now()});
   const url=path.startsWith('https://')?path:API+path;
   if(!url.startsWith(API)&&!url.startsWith('https://www.googleapis.com/upload/drive/v3/'))throw Error('Dirección de Drive no válida.');
   const token=this.token;const controller=new this.env.AbortController(),timer=this.env.setTimeout(()=>controller.abort(),120000);
   try{
-   const response=await this.env.fetch(url,{method,headers:{...headers,Authorization:'Bearer '+token},body,signal:controller.signal,cache:'no-store'});
+   const response=await this.env.fetch(url,{method,headers:{...headers,Authorization:'Bearer '+token},body,signal:controller.signal,cache:'no-store',redirect:'error'});
    if(response.status===401){if(token!==this.token)throw driveError('La sesión anterior venció. Se reintentará con la conexión actual.','DRIVE_RETRYABLE');this.expire();throw driveError('La sesión de Drive venció. Volvé a conectar tu cuenta.','DRIVE_AUTH');}
    if(!response.ok){let reason='';try{reason=(await response.json()).error?.errors?.[0]?.reason||'';}catch{}
     if(reason==='storageQuotaExceeded')throw Error('Tu cuenta de Drive no tiene espacio disponible. Tus cambios siguen guardados localmente.');
-    if(response.status===429||response.status>=500||['rateLimitExceeded','userRateLimitExceeded','backendError'].includes(reason))throw driveError('Drive está ocupado. Se reintentará automáticamente; tus cambios siguen guardados en este dispositivo.','DRIVE_RETRYABLE',{retryAfterMs:Math.min(300000,Math.max(0,Number(response.headers.get('Retry-After'))||0)*1000)});
+    if(response.status===429||response.status>=500||['rateLimitExceeded','userRateLimitExceeded','backendError'].includes(reason)){this.retryUntil=Date.now()+(retryAfterMs(response.headers.get('Retry-After'))||3000);throw driveError('Drive está ocupado. Se reintentará automáticamente; tus cambios siguen guardados en este dispositivo.','DRIVE_RETRYABLE',{retryAfterMs:this.retryUntil-Date.now()});}
     if(response.status===404){this.folder=null;throw driveError('Un archivo o carpeta de Guarda cambió en Drive. Se volverá a comprobar la sincronización.','DRIVE_RETRYABLE');}
     if(response.status===403)throw driveError('Google Drive no autorizó esta operación. Revisá el acceso de Guarda a tu cuenta.','DRIVE_PERMISSION');
     throw Error('No se pudo completar la sincronización con Drive. Se conservaron tus cambios locales.');
    }
-   if(raw)return response;return response.status===204?null:await response.json();
+   if(backup)return await readBackupResponse(response);if(raw)return response;return response.status===204?null:await response.json();
   }catch(error){if(error.name==='AbortError'||error instanceof TypeError)throw driveError(error.name==='AbortError'?'Drive tardó demasiado en responder. Se reintentará automáticamente.':'No se pudo acceder a Drive. Se reintentará al recuperar la conexión.','DRIVE_RETRYABLE');throw error;}finally{this.env.clearTimeout(timer);}
  }
  async listSnapshots(){
@@ -91,9 +93,10 @@ export class DriveClient{
   do{const query=new URLSearchParams({q:"trashed = false and 'me' in owners and appProperties has { key='guarda' and value='sync-v1' }",fields:'nextPageToken,files(id,name,modifiedTime,appProperties,parents)',pageSize:'1000'});if(pageToken)query.set('pageToken',pageToken);const data=await this.request('files?'+query);files.push(...data.files);pageToken=data.nextPageToken||'';}while(pageToken);
   return files;
  }
- readSnapshot(id){return this.request('files/'+encodeURIComponent(id)+'?alt=media');}
+ readSnapshot(id){return this.request('files/'+encodeURIComponent(id)+'?alt=media',{backup:true});}
  async writeSnapshot(device,payload,fileId){
   const content=new Blob([JSON.stringify(payload)],{type:'application/json'});
+  if(content.size>MAX_BACKUP_BYTES)throw Error('La copia de Drive supera 200 MB. Tus notas se conservan localmente. Exportá una copia y reducí los adjuntos antes de sincronizar.');
   const metadata=fileId?{name:'Guarda-'+device+'.json'}:{name:'Guarda-'+device+'.json',mimeType:'application/json',appProperties:{guarda:'sync-v1',device},parents:[await this.ensureFolder()]};
   const url='https://www.googleapis.com/upload/drive/v3/files'+(fileId?'/'+encodeURIComponent(fileId):'')+'?uploadType=resumable&fields=id';
   const session=await this.request(url,{method:fileId?'PATCH':'POST',headers:{'Content-Type':'application/json','X-Upload-Content-Type':'application/json','X-Upload-Content-Length':String(content.size)},body:JSON.stringify(metadata),raw:true});

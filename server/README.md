@@ -29,11 +29,15 @@ Requisitos: Node.js 22.13 o superior, una cuenta gratuita de Cloudflare y acceso
 11. Incrementar la versión, ejecutar `npm run check`, `npm test` y `npm run build`, y publicar por el flujo de Pages existente. No afirmar activación hasta comprobar el despliegue y una autorización real.
 12. Cada dispositivo conecta una vez el sistema nuevo. A partir de entonces la renovación no necesita ventanas de Google en el uso normal. Conservar permisos de prueba solo sirve para validar; no elimina el vencimiento semanal de Testing.
 
+## Operación y protección contra abuso (0.7.9)
+
+Ver [auditoría, límites, mantenimiento y riesgos](../docs/security.md). No requiere migración de D1 ni cambios de secretos.
+
 ## Diseño y seguridad
 
 - El navegador conserva un identificador secreto y revocable de **su sesión de Guarda** en IndexedDB. No es un token de Google. Las claves `drive-broker-*` se excluyen de exportaciones, importaciones y sincronización, igual que el resto de `drive-*`.
 - Los tokens de Google renovables y el acceso temporal cacheado se cifran con AES-GCM y contexto por registro. D1 guarda únicamente el hash del secreto de sesión; el servidor nunca entrega el refresh token al navegador. El secreto OAuth y la clave de cifrado se almacenan como secretos de Workers, fuera del repositorio.
-- El inicio de OAuth utiliza un formulario POST hacia una ventana de primer nivel, con validación estricta de `Origin`. Ese paso crea una cookie `__Host-`, Secure, HttpOnly, SameSite=Lax de diez minutos. Su hash se vincula al intento antes de redirigir a Google. Evita aceptar un consentimiento obtenido en otro navegador a partir de un enlace reenviado.
+- El inicio actual abre una URL HTTPS con un ticket de lanzamiento de uso único; se conserva el formulario POST anterior para clientes instalados. El formulario valida `Origin` y ambos mecanismos exigen pruebas secretas y una adquisición atómica. Ese paso crea una cookie `__Host-`, Secure, HttpOnly, SameSite=Lax de diez minutos. Su hash se vincula al intento antes de redirigir a Google. Evita aceptar un consentimiento obtenido en otro navegador a partir de un enlace reenviado.
 - OAuth usa estado aleatorio de un solo uso y PKCE. La entrega de la sesión exige una prueba aleatoria que nunca se envía a Google. El resultado queda cifrado durante diez minutos para poder repetir una consulta si se corta la red. Un intento que nunca se utiliza no conserva el permiso durante un año.
 - Las API del servicio usan `Authorization: Bearer` y `credentials: omit`, sin cookies entre sitios. Solo el popup usa la cookie de primer nivel y la borra al terminar. No requiere trasladar notas a otro origen para funcionar en Safari.
 - Antes de guardar o renovar, el servidor consulta la identidad en Drive y compara `permissionId`. El cliente vuelve a comparar la cuenta vinculada antes de aceptar el acceso. No se mezclan cuentas. Las llamadas directas a Drive conservan las validaciones del motor de sincronización existente.
@@ -43,7 +47,7 @@ Requisitos: Node.js 22.13 o superior, una cuenta gratuita de Cloudflare y acceso
 
 ## Comprobaciones antes de habilitarlo
 
-Las pruebas de Node usan SQLite real y Google simulado; no prueban consentimiento real ni Safari físico. `npm run broker:dry-run` compila el Worker sin desplegar ni requerir una cuenta.
+Las pruebas de Node usan SQLite y Google simulado. La suite también ejecuta workerd con D1 y rate limits locales reales, pero Google sigue simulado: no prueba consentimiento real ni Safari físico. `npm run broker:dry-run` compila el Worker sin desplegar ni requerir una cuenta.
 
 En un iPhone, probar: primera autorización; cierre completo y reapertura; acceso vencido después de una hora; actualización de Guarda; modo avión y recuperación; dos pestañas; cuenta equivocada; desconexión y revocación desde Google. En cada caso comprobar que una nota local nueva se conserva y termina en la carpeta ya existente, sin intervención salvo cuando Google haya revocado el permiso. Probar también la pérdida de red después del consentimiento y el bloqueo/cierre del popup.
 

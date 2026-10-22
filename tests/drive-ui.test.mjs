@@ -78,7 +78,7 @@ test('temporary Drive errors retry with backoff while permanent errors do not lo
  const original=DriveSync.prototype.sync;let failure;DriveSync.prototype.sync=async()=>{if(failure)throw failure;return {};};
  try{
   const f=fixture({});await f.ui.open();await settle();f.document.getElementById('drive-connect').onclick();await settle();await settle();
-  failure=Object.assign(Error('Drive ocupado'),{code:'DRIVE_RETRYABLE'});await assert.rejects(f.ui.sync());assert.equal(f.ui.getState().state,'pending');assert.equal(f.retryDelay,3000);await f.retry();assert.equal(f.retryDelay,6000);failure=null;await f.retry();assert.equal(f.ui.getState().state,'synced');
+  failure=Object.assign(Error('Drive ocupado'),{code:'DRIVE_RETRYABLE'});await assert.rejects(f.ui.sync());assert.equal(f.ui.getState().state,'pending');assert.ok(f.retryDelay>=3000&&f.retryDelay<3750);await f.retry();assert.ok(f.retryDelay>=6000&&f.retryDelay<7500);failure=null;await f.retry();assert.equal(f.ui.getState().state,'synced');
   failure=Object.assign(Error('Permiso insuficiente'),{code:'DRIVE_PERMISSION'});await assert.rejects(f.ui.sync());assert.equal(f.ui.getState().state,'error');assert.equal(f.hasRetry,false);
   await f.ui.open();await settle();await f.document.getElementById('drive-disconnect').onclick();
  }finally{DriveSync.prototype.sync=original;}
@@ -262,4 +262,18 @@ test('a pending persistent authorization can be disconnected from the Drive pane
  assert.equal(f.ui.getState().enabled,false);
  assert.equal(f.values.get('drive-broker-session'),null);
  assert.equal(f.values.get('drive-connection').enabled,false);
+});
+
+test('background failures stop after eight attempts and explicit retry can recover',async()=>{
+ const original=DriveSync.prototype.sync;let failure=false,calls=0;
+ DriveSync.prototype.sync=async()=>{calls++;if(failure)throw Object.assign(Error('Mantenimiento temporal'),{code:'DRIVE_MAINTENANCE',retryAfterMs:60000});return {};};
+ try{
+  const f=fixture({});await f.ui.open();await settle();f.document.getElementById('drive-connect').onclick();await settle();await settle();
+  failure=true;await assert.rejects(f.ui.sync());
+  for(let i=0;i<7;i++){assert.ok(f.retryDelay>=60000);await f.retry();}
+  assert.equal(f.hasRetry,false);assert.match(f.ui.getState().message,/pausaron los reintentos/);
+  const before=calls;await f.ui.resume();assert.equal(calls,before);
+  failure=false;await f.ui.sync();assert.equal(f.ui.getState().state,'synced');
+  await f.ui.open();await settle();await f.document.getElementById('drive-disconnect').onclick();
+ }finally{DriveSync.prototype.sync=original;}
 });

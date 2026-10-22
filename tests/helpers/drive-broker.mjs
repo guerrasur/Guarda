@@ -20,6 +20,11 @@ export async function brokerFixture(t) {
   let now = Date.now(), mode = '', owner = 'owner', gate, accessCount = 0;
   const calls = [];
   const env = { DB: db, ENCRYPTION_KEY: random(), GOOGLE_CLIENT_SECRET: 'test-only-client-secret', GOOGLE_CLIENT_ID, APP_ORIGIN: 'https://guerrasur.github.io', PUBLIC_ORIGIN: 'https://guarda-drive.test' };
+  const limits = { IP_LIMIT: 600, BEGIN_LIMIT: 20, NAV_LIMIT: 60, SESSION_LIMIT: 30, REFRESH_LIMIT: 4 };
+  for (const [name, maximum] of Object.entries(limits)) {
+    const buckets = new Map();
+    env[name] = { async limit({ key }) { const bucket = key + ':' + Math.floor(now / 60000); const count = (buckets.get(bucket) || 0) + 1; buckets.set(bucket, count); return { success: count <= maximum }; } };
+  }
   const fetcher = async (url, options) => {
     // Match the edge runtime, which rejects redirect:error before network I/O.
     if (!['follow', 'manual'].includes(options.redirect)) throw new TypeError('Invalid redirect value');

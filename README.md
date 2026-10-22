@@ -115,3 +115,7 @@ La vista previa muestra notas, archivos, duplicados y adjuntos faltantes antes d
 Máximo 100 MB de entrada por selección, 200 MB descomprimidos, 50 MB por adjunto y 8 MB por JSON. Las exportaciones mayores deben dividirse. No se ejecuta el HTML de Takeout ni se descargan adjuntos desde URLs. Si Drive está conectado, las notas se sincronizan como las demás notas de Guarda.
 
 Referencias: https://support.google.com/keep/answer/10017039 y https://support.google.com/accounts/answer/3024190. La compatibilidad se probó con fixtures ZIP/JSON representativos; un archivo real del usuario puede revelar variantes adicionales del formato.
+
+## Seguridad y operación
+
+La versión 0.7.9 incorpora límites sin contadores en D1, pausas de reintento, mantenimiento y pruebas en workerd. Ver [límites, auditoría y operación](docs/security.md).

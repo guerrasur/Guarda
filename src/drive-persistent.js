@@ -1,4 +1,5 @@
 import { DriveClient } from './drive-client.js';
+import { retryAfterMs, retryDelay } from './retry.js';
 import { GOOGLE_CLIENT_ID } from './drive-config.js';
 
 const SESSION = 'drive-broker-session', REVOCATIONS = 'drive-broker-revocations';
@@ -6,7 +7,7 @@ const error = (message, code = 'DRIVE_RETRYABLE') => Object.assign(new Error(mes
 const encode = bytes => btoa(String.fromCharCode(...new Uint8Array(bytes))).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 export class PersistentDriveClient extends DriveClient {
   constructor({ store, brokerUrl, env = globalThis }) {
-    super({ env }); this.store = store; this.persistent = true; this.clientId = GOOGLE_CLIENT_ID; this.generation = 0;
+    super({ env }); this.store = store; this.persistent = true; this.clientId = GOOGLE_CLIENT_ID; this.generation = 0; this.cooldowns = new Map();
     const url = new URL(brokerUrl);
     if (url.protocol !== 'https:' || url.origin !== brokerUrl.replace(/\/$/, '')) throw Error('Dirección del servicio de conexión inválida.');
     this.brokerUrl = url.origin;
@@ -15,6 +16,9 @@ export class PersistentDriveClient extends DriveClient {
   // is durable, under a drive-* key excluded from backup/import/synchronization.
   session() { return null; }
   async api(path, { method = 'GET', body, credential, verifier, signal } = {}) {
+    const bucket = path.startsWith('/v1/authorizations/') ? 'poll' : path;
+    const cooldown = this.cooldowns.get(bucket);
+    if (cooldown?.until > Date.now()) throw Object.assign(error(cooldown.message, cooldown.code), { retryAfterMs: cooldown.until - Date.now() });
     const controller = new this.env.AbortController();
     const abort = () => controller.abort(); signal?.addEventListener('abort', abort, { once: true });
     if (signal?.aborted) controller.abort();
@@ -25,23 +29,31 @@ export class PersistentDriveClient extends DriveClient {
         headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(credential ? { Authorization: 'Bearer ' + credential.session } : {}), ...(verifier ? { 'X-Guarda-Verification': verifier } : {}) },
         ...(body ? { body: JSON.stringify(body) } : {}),
       });
-      const data = await response.json();
-      if (!response.ok) throw error(data.error?.message || 'No se pudo recuperar la conexión de Google Drive.', ['DRIVE_AUTH', 'DRIVE_ACCOUNT', 'DRIVE_PERMISSION'].includes(data.error?.code) ? data.error.code : 'DRIVE_RETRYABLE');
+      let data; try { data = await response.json(); } catch {}
+      if (!response.ok) {
+        const code = ['DRIVE_AUTH', 'DRIVE_ACCOUNT', 'DRIVE_PERMISSION', 'DRIVE_LIMIT', 'DRIVE_MAINTENANCE', 'DRIVE_QUOTA'].includes(data?.error?.code) ? data.error.code : 'DRIVE_RETRYABLE';
+        const message = data?.error?.message || 'El servicio de Drive no está disponible temporalmente. Tus notas siguen guardadas localmente.';
+        const delay = retryAfterMs(response.headers?.get('Retry-After')) || (response.status === 429 || response.status >= 500 ? 60000 : 0);
+        if (delay) this.cooldowns.set(bucket, { until: Date.now() + delay, code, message });
+        throw Object.assign(error(message, code), { retryAfterMs: delay });
+      }
+      if (!data || typeof data !== 'object') throw error('El servicio devolvió una respuesta inválida. Tus notas siguen guardadas localmente.');
+      this.cooldowns.delete(bucket);
       return data;
     } catch (cause) {
       if (typeof cause.code === 'string' && cause.code.startsWith('DRIVE_')) throw cause;
       throw error('No se pudo recuperar la conexión. Se volverá a intentar cuando haya internet.');
     } finally { this.env.clearTimeout(timer); signal?.removeEventListener('abort', abort); }
   }
-  async prepare(clientId) {
+  async prepare(clientId, { accountId = null, hint = '' } = {}) {
     const config = await this.api('/v1/config');
     if (!config.persistent || config.clientId !== clientId) throw error('La configuración de Google no coincide con el servicio de Guarda.', 'DRIVE_PERMISSION');
     this.clientId = clientId; await this.flushRevocations();
-    await this.prepareAuthorization();
+    await this.prepareAuthorization(accountId, hint);
   }
   prepareAuthorization(accountId = null, hint = '') {
     const current = this.readyAuthorization;
-    if (current && Date.now() - current.createdAt < 480000) return Promise.resolve();
+    if (current && current.accountId === accountId && Date.now() - current.createdAt < 480000) return Promise.resolve();
     if (this.authorizationFlight) return this.authorizationFlight;
     this.authorizationFlight = (async () => {
       const verifier = encode(this.env.crypto.getRandomValues(new Uint8Array(32)));
@@ -50,7 +62,7 @@ export class PersistentDriveClient extends DriveClient {
       if (!/^[\w-]{43}$/.test(start.id || '') || !/^[\w-]{43}$/.test(start.launchTicket || '')) {
         throw error('El servicio devolvió una autorización inválida.', 'DRIVE_PERMISSION');
       }
-      this.readyAuthorization = { id: start.id, verifier, launchTicket: start.launchTicket, createdAt: Date.now() };
+      this.readyAuthorization = { id: start.id, verifier, launchTicket: start.launchTicket, accountId, createdAt: Date.now() };
     })().finally(() => { this.authorizationFlight = null; });
     return this.authorizationFlight;
   }
@@ -85,7 +97,8 @@ export class PersistentDriveClient extends DriveClient {
   ensureAccess(force = false) {
     if (this.tokenFlight) return this.tokenFlight;
     const generation = this.generation;
-    this.tokenFlight = this.getAccess(force, generation).finally(() => { this.tokenFlight = null; });
+    const get = () => this.getAccess(force, generation);
+    this.tokenFlight = (this.env.navigator?.locks ? this.env.navigator.locks.request('guarda-drive-access', get) : get()).finally(() => { this.tokenFlight = null; });
     return this.tokenFlight;
   }
   async getAccess(force, generation) {
@@ -94,7 +107,7 @@ export class PersistentDriveClient extends DriveClient {
     if (this.user && this.user.permissionId !== saved.accountId) { this.expire(); throw error('Estas notas pertenecen a otra cuenta.', 'DRIVE_ACCOUNT'); }
     if (!force && this.hasToken && this.currentSession === saved.session) return;
     let data;
-    try { data = await this.api('/v1/access-token', { method: 'POST', credential: saved, body: { force, accountId: saved.accountId } }); }
+    try { data = await this.api('/v1/access-token', { method: 'POST', credential: saved, body: { force, accountId: saved.accountId, ...(force && this.rejectedTokenHash ? { rejectedTokenHash: this.rejectedTokenHash } : {}) } }); }
     catch (cause) {
       if (generation !== this.generation) throw error('Conexión cancelada.', 'DRIVE_AUTH');
       if (cause.code === 'DRIVE_AUTH') {
@@ -112,16 +125,18 @@ export class PersistentDriveClient extends DriveClient {
   }
   async request(path, options) {
     await this.ensureAccess();
+    const usedToken = this.token;
     try { return await super.request(path, options); }
     catch (cause) {
       if (cause.code !== 'DRIVE_AUTH') throw cause;
+      this.rejectedTokenHash = encode(await this.env.crypto.subtle.digest('SHA-256', new TextEncoder().encode(usedToken)));
       await this.ensureAccess(true); return super.request(path, options);
     }
   }
   connect({ accountId = null, hint = '' } = {}) {
     if (this.pending) return Promise.reject(error('La conexión ya está en curso.'));
     const flow = this.readyAuthorization;
-    if (!flow || Date.now() - flow.createdAt >= 480000) {
+    if (!flow || flow.accountId !== accountId || Date.now() - flow.createdAt >= 480000) {
       this.readyAuthorization = null;
       this.prepareAuthorization(accountId, hint).catch(() => {});
       return Promise.reject(error('Preparando la conexión segura. Esperá unos segundos y tocá Conectar Google Drive otra vez.', 'DRIVE_INTERACTION'));
@@ -140,17 +155,23 @@ export class PersistentDriveClient extends DriveClient {
     return this.authorize(pending, flow, accountId).finally(() => {
       this.env.clearTimeout(pending.timer); try { popup.close(); } catch {}
       if (this.pending === pending) this.pending = null;
-      this.prepareAuthorization(accountId, hint).catch(() => {});
+      // The next authorization is prepared only on explicit demand.
     });
   }
   async authorize(pending, flow, accountId) {
     const { id, verifier } = flow;
     const deadline = Date.now() + 600000;
-    while (Date.now() < deadline) {
+    let failures = 0, polls = 0;
+    while (Date.now() < deadline && polls++ < 120) {
+      let pause = Math.min(10000, 3000 + polls * 150);
       if (this.pending !== pending || pending.controller.signal.aborted) throw error('Conexión cancelada.', 'DRIVE_AUTH');
       let data;
       try { data = await this.api('/v1/authorizations/' + id, { verifier, signal: pending.controller.signal }); }
-      catch (cause) { if (cause.code !== 'DRIVE_RETRYABLE') throw cause; }
+      catch (cause) {
+        if (!['DRIVE_RETRYABLE', 'DRIVE_LIMIT', 'DRIVE_MAINTENANCE', 'DRIVE_QUOTA'].includes(cause.code) || ++failures >= 6) throw cause;
+        pause = retryDelay(failures, cause.retryAfterMs);
+      }
+      if (data) failures = 0;
       if (this.pending !== pending || pending.controller.signal.aborted) throw error('Conexión cancelada.', 'DRIVE_AUTH');
       if (data?.error) throw error(data.error.message, data.error.code);
       if (data?.session) {
@@ -172,7 +193,7 @@ export class PersistentDriveClient extends DriveClient {
       // Browser isolation (COOP and iOS PWA sheets) can report closed=true
       // while Google is still open. Only the proof-protected server result,
       // an explicit disconnect or the authorization deadline ends this flow.
-      await new Promise(resolve => { pending.wake = resolve; pending.timer = this.env.setTimeout(resolve, this.env.document?.hidden ? 5000 : 1500); });
+      await new Promise(resolve => { pending.wake = resolve; pending.timer = this.env.setTimeout(resolve, Math.min(deadline - Date.now(), Math.max(pause, this.env.document?.hidden ? 10000 : 0) + Math.random() * 500)); });
     }
     throw error('Google no respondió. Volvé a conectar para reintentarlo.', 'DRIVE_INTERACTION');
   }

@@ -209,6 +209,10 @@ export class GuardaStore extends EventTarget {
   async validateBackup(data) {
     assert(object(data) && data.format === 'guarda-backup' && data.version === 1, 'La copia no tiene un formato de Guarda compatible.');
     for (const name of STORES) assert(Array.isArray(data[name]), `Falta la sección ${name} de la copia.`);
+    assert(STORES.every(name => data[name].length <= 50000), 'La copia contiene demasiados registros.');
+    let encodedBytes = 0;
+    for (const a of data.attachments) { assert(object(a) && typeof a.data === 'string', 'Un adjunto de la copia no es válido.'); encodedBytes += a.data.length; }
+    assert(encodedBytes <= 200 * 1024 * 1024, 'Los adjuntos de la copia superan 200 MB.');
     const unique = (records, name) => { const ids = new Set(); for (const record of records) { assert(validId(record?.id) && !ids.has(record.id), `Hay identificadores inválidos o repetidos en ${name}.`); ids.add(record.id); } return ids; };
     const noteIds = unique(data.notes, 'notas'); const labelIds = unique(data.labels, 'etiquetas'); unique(data.settings, 'ajustes');
     data.notes.forEach(validateNote); data.labels.forEach(validateLabel);

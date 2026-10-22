@@ -9,8 +9,9 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
     steps:
+      - uses: actions/checkout@v4
       - name: Comprobar versión publicada en GitHub Pages y Worker de Cloudflare
         shell: bash
         env:
@@ -19,9 +20,10 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           node --input-type=module <<'NODE'
+          const { APP_VERSION } = await import('./src/version.js');
           const paths = [
-            { name: 'GitHub Pages', url: 'https://guerrasur.github.io/Guarda/version.json?check=' + Date.now(), match: body => { try { return JSON.parse(body).version === '0.7.5'; } catch { return false; } } },
-            { name: 'Cloudflare Worker OAuth', url: 'https://guarda-drive.luchoguerra33.workers.dev/oauth/launch?state=invalid&ticket=invalid', match: body => body.includes('Esta solicitud de conexión no está disponible') }
+            { name: 'GitHub Pages', url: 'https://guerrasur.github.io/Guarda/version.json?check=' + Date.now(), match: body => { try { return JSON.parse(body).version === APP_VERSION; } catch { return false; } } },
+            { name: 'Cloudflare Worker OAuth', url: 'https://guarda-drive.luchoguerra33.workers.dev/v1/config', match: body => { try { return JSON.parse(body).version === APP_VERSION; } catch { return false; } } }
           ];
           const statusUrl = `https://api.github.com/repos/${process.env.REPO}/statuses/${process.env.COMMIT_SHA}`;
           async function report(state, description) {
@@ -36,14 +38,14 @@ jobs:
           let failures = 0;
           for (const target of paths) {
             let ready = false;
-            for (let i=0;i<9;i++) {
+            for (let i=0;i<18;i++) {
               try {
-                const response = await fetch(target.url, { signal: AbortSignal.timeout(12000), cache: 'no-store' });
+                const response = await fetch(target.url, { signal: AbortSignal.timeout(12000), cache: 'no-store', headers: { Origin: 'https://guerrasur.github.io' } });
                 const body = await response.text();
                 if (response.ok && target.match(body)) { console.log(target.name + ': actualizado'); ready = true; break; }
                 console.log(target.name + ': pendiente (HTTP ' + response.status + ')');
               } catch (err) { console.log(target.name + ': sin respuesta (' + (err.name || 'error') + ')'); }
-              if (i !== 8) await new Promise(resolve => setTimeout(resolve, 10000));
+              if (i !== 17) await new Promise(resolve => setTimeout(resolve, 10000));
             }
             if (!ready) { console.error(target.name + ': requiere publicación o revisión manual de infraestructura'); failures++; }
           }
