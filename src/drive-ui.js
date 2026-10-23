@@ -5,9 +5,9 @@ import { PersistentDriveClient } from './drive-persistent.js';
 import { DriveSync } from './drive-sync.js';
 import { GOOGLE_CLIENT_ID, DRIVE_BROKER_URL } from './drive-config.js';
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-export function initDrive({store,isBusy,onApplied,utility,closeUtility,showError,env=globalThis,brokerUrl=DRIVE_BROKER_URL}){
+export function initDrive({store,isBusy,isUploadBusy=isBusy,onApplied,utility,closeUtility,showError,env=globalThis,brokerUrl=DRIVE_BROKER_URL}){
  const $=id=>env.document.getElementById(id);let clientId=GOOGLE_CLIENT_ID,timer=null,remembered=null,enabled=false,message='Drive sin conectar',currentState='hidden',changeVersion=0,flight=null,prepared=false,preparedId='',preparing=false,prepareFailed=false,backoff=3000,retryAt=0;
- const listeners=new Set();let retryCount=0,retriesPaused=false;let prepareFlight=null,sessionCandidate=null,renewalAttempted=false,initialized=false,boundAccount=null;
+ const listeners=new Set();let pendingDownload=false;let retryCount=0,retriesPaused=false;let prepareFlight=null,sessionCandidate=null,renewalAttempted=false,initialized=false,boundAccount=null;
  const bridge=new DriveSessionBridge({env});
  const client=brokerUrl?new PersistentDriveClient({env,store,brokerUrl}):new DriveClient({env});
  const getState=()=>({connected:client.connected,enabled,user:client.user||remembered,state:currentState,message,working:!!flight||!!client.pending,preparing,folder:client.folder,folderName:driveFolderName(client.user||remembered)});
@@ -23,7 +23,7 @@ export function initDrive({store,isBusy,onApplied,utility,closeUtility,showError
  const emit=()=>{controls();for(const listener of listeners)listener(getState());};
  const indicator=(state,text)=>{currentState=state;const el=$('drive-indicator');if(el){el.hidden=state==='hidden';el.dataset.state=state;el.title=text;el.setAttribute('aria-label',text);el.textContent='';}const profile=$('local-info');if(profile){profile.title=text||'Perfil y Google Drive';profile.setAttribute('aria-label','Perfil. '+(text||'Google Drive sin conectar'));}emit();};
  const status=text=>{message=text;for(const id of ['drive-status','drive-panel-status'])if($(id))$(id).textContent=text;emit();};
- const sync=new DriveSync({store,client,isBusy,onApplied,env,onStatus:status});
+ const sync=new DriveSync({store,client,isBusy,isUploadBusy,onApplied,env,onStatus:status});
  const background=()=>attempt().catch(()=>{});
  const queueRetry=(delay=1500)=>{env.clearTimeout(timer);retryAt=Date.now()+delay;timer=env.setTimeout(()=>{timer=null;retryAt=0;return background();},delay);};
  function defer(retry=false){status('Google Drive conectado. Guardado pendiente; se reintentará al terminar la operación actual.');indicator('pending',message);if(retry)queueRetry();return {deferred:true};}
@@ -71,10 +71,10 @@ export function initDrive({store,isBusy,onApplied,utility,closeUtility,showError
     status(text);indicator('reconnect',text);return {needsAuthorization:true};
    }
    preserveSession();
-   if(isBusy())return defer();
+   if(isUploadBusy())return defer();
    indicator('syncing','Sincronizando con Google Drive…');const started=changeVersion;
-   const result=await sync.sync();if(env.navigator?.onLine===false)return offline();backoff=3000;retryCount=0;
-   if(started===changeVersion)indicator('synced','Todo guardado en Google Drive');else {indicator('pending','Cambios pendientes de guardar en Google Drive');queueRetry();}return result;
+   const result=await sync.sync();pendingDownload=!!result.uploadOnly;if(env.navigator?.onLine===false)return offline();backoff=3000;retryCount=0;
+   if(started===changeVersion)indicator('synced',pendingDownload?'Cambios locales guardados en Google Drive':'Todo guardado en Google Drive');else {indicator('pending','Cambios pendientes de guardar en Google Drive');queueRetry();}return result;
   }catch(error){
    const code=error.code||error.cause?.code;
    if(code==='DRIVE_RETRYABLE'&&env.navigator?.onLine===false)return offline();
@@ -88,7 +88,7 @@ export function initDrive({store,isBusy,onApplied,utility,closeUtility,showError
  }
  const schedule=()=>{changeVersion++;if(env.navigator?.onLine===false){offline();return;}if(client.connected){indicator('pending','Cambios pendientes de guardar en Google Drive');if(!retryAt)queueRetry();}else if(enabled)background();};
  store.addEventListener('change',event=>{if(event.detail.type!=='cloud-apply'&&event.detail.type!=='setting'&&!event.detail.id?.startsWith('drive-'))schedule();});
- const resume=()=>{if(client.connected&&currentState==='pending'&&!flight&&!retryAt)queueRetry();};
+ const resume=()=>{if(client.connected&&(currentState==='pending'||pendingDownload)&&!flight&&!retryAt)queueRetry();};
  env.setInterval(()=>{if(!env.document.hidden)background();},60000);
  env.window.addEventListener('online',()=>{backoff=3000;retryCount=0;retriesPaused=false;retryAt=0;env.clearTimeout(timer);client.flushRevocations?.().catch(()=>{});background();});
  env.window.addEventListener('offline',()=>{env.clearTimeout(timer);timer=null;retryAt=0;changeVersion++;if(enabled){status('Sin conexión a internet. Tus cambios se conservan en este dispositivo.');indicator('offline',message);}});

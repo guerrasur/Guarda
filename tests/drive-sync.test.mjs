@@ -81,3 +81,16 @@ test('audio waveform metadata survives Drive synchronization and backup restorat
  const f=await fixture(t),a=await f.device(),b=await f.device(),c=await f.device();const n=note('wave');const waveform={version:1,duration:2,peaks:[0,.25,1,.4,0]};
  await a.store.attachToNote(n,{id:'audio-wave',noteId:n.id,type:'audio/mpeg',name:'Voz',duration:2,waveform,blob:new Blob(['audio bytes'],{type:'audio/mpeg'})});await a.sync.sync();await b.sync.sync();assert.deepEqual((await b.store.getAttachment('audio-wave')).waveform,waveform);await c.store.importBackup(await b.store.exportBackup());assert.deepEqual((await c.store.getAttachment('audio-wave')).waveform,waveform);
 });
+test('open editors upload repeated edits without applying remote notes or generating conflicts',async t=>{
+ const f=await fixture(t),a=await f.device(),b=await f.device();await a.store.putNote(note('remote','Desde otro dispositivo'));await a.sync.sync();
+ b.sync.isBusy=()=>true;b.sync.isUploadBusy=()=>false;
+ for(const body of ['Uno','Dos','Tres']){await b.store.putNote(note('open',body));const result=await b.sync.sync();assert.equal(result.uploadOnly,true);assert.deepEqual((await b.store.allNotes()).map(n=>n.id),['open']);}
+ await a.sync.sync();assert.equal((await a.store.allNotes()).find(n=>n.id==='open').body,'Tres');assert.equal((await a.store.allNotes()).length,2);
+ b.sync.isBusy=()=>false;await b.sync.sync();assert.equal((await b.store.allNotes()).length,2);
+});
+test('edits during an editor upload retain local text and retry with correct vector clocks',async t=>{
+ const f=await fixture(t),a=await f.device();await a.store.putNote(note('editing','Antes'));a.sync.isBusy=()=>true;a.sync.isUploadBusy=()=>false;const upload=a.client.writeSnapshot;
+ a.client.writeSnapshot=async(...args)=>{const id=await upload(...args);await a.store.putNote(note('editing','Durante'));return id;};
+ await assert.rejects(a.sync.sync(),e=>e.cause?.code==='SYNC_LOCAL_CHANGED');assert.equal((await a.store.allNotes())[0].body,'Durante');a.client.writeSnapshot=upload;await a.sync.sync();
+ assert.ok([...f.files.values()].some(f=>f.records.some(r=>r.value?.note?.body==='Durante')));
+});

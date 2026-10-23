@@ -22,6 +22,7 @@ for(const d of document.querySelectorAll('dialog')){d.showModal=()=>{d.open=true
 Object.defineProperty(window.HTMLSelectElement.prototype,'value',{get(){return this.querySelector('option[selected]')?.getAttribute('value')||this.querySelector('option')?.getAttribute('value')||'';},set(value){for(const o of this.querySelectorAll('option'))o.toggleAttribute('selected',o.getAttribute('value')===value);},configurable:true});
 Object.defineProperty(window.HTMLInputElement.prototype,'checked',{get(){return this.hasAttribute('checked');},set(value){this.toggleAttribute('checked',!!value);},configurable:true});
 const $=id=>document.getElementById(id);
+const recoveryMemory=new Map();globalThis.localStorage={get length(){return recoveryMemory.size;},key:i=>[...recoveryMemory.keys()][i],getItem:k=>recoveryMemory.get(k)??null,setItem:(k,v)=>recoveryMemory.set(k,v),removeItem:k=>recoveryMemory.delete(k)};
 const app=await import('../src/app.js');
 const store=new GuardaStore({broadcast:false});
 const input=(element,value)=>{element.value=value;element.dispatchEvent(new window.Event('input',{bubbles:true}));};
@@ -256,4 +257,32 @@ await test('individual deletion of a selected note clears the selection bar',asy
  $('popover').querySelector('[data-menu=trash]').dispatchEvent(new window.Event('click',{bubbles:true}));
  await until(async()=>(await store.allNotes()).find(x=>x.id===n.id).deletedAt);
  await until(()=>$('selection-bar').hidden);assert.equal(document.body.classList.contains('selecting-notes'),false);
+});
+
+await test('paste explicitly persists paragraphs and formatting even if insertHTML fires no input event',async()=>{
+ await $('new-note').onclick();const old=document.execCommand;
+ const html='<p>Primer <b>verso</b><br>Otra línea</p><p><s>Estrofa tachada</s></p><script>bad()</script>';
+ document.execCommand=(command,ui,value)=>{assert.equal(command,'insertHTML');$('editor-body').innerHTML=value;return true;};
+ try{$('editor-body').onpaste({preventDefault(){},clipboardData:{getData:type=>type==='text/html'?html:'Primer verso\nOtra línea\n\nEstrofa tachada'}});await $('editor-close').onclick();const n=(await store.allNotes()).find(n=>n.body==='Primer verso\nOtra línea\n\nEstrofa tachada');assert.ok(n);assert.match(n.richBody,/<b>verso<\/b>/);assert.match(n.richBody,/<s>Estrofa tachada<\/s>/);assert.doesNotMatch(n.richBody,/script|bad/);}finally{document.execCommand=old;}
+});
+await test('plain clipboard text retains every empty line and treats markup as text',()=>{
+ assert.equal(app.clipboardHTML({getData:type=>type==='text/plain'?'uno\r\n\r\n\r\n<dos>':''}),'uno<br><br><br>&lt;dos&gt;');
+});
+await test('pagehide captures editor contents even when the browser omitted input',async()=>{
+ await $('new-note').onclick();$('note-title').value='Último cambio sin evento';$('editor-body').innerHTML='Uno<br><br>Tres';window.dispatchEvent(new window.Event('pagehide'));await until(async()=>(await store.allNotes()).some(n=>n.title==='Último cambio sin evento'&&n.body==='Uno\n\nTres'));await $('editor-close').onclick();
+});
+
+await test('each keystroke has a synchronous recovery copy before the debounce and confirmed saves clear it',async()=>{
+ await $('new-note').onclick();input($('note-title'),'Respaldo inmediato');$('editor-body').innerHTML='Verso<br><br>Estrofa';$('editor-body').oninput();const key=[...recoveryMemory.keys()].find(k=>k.startsWith('guarda-draft-v1:'));assert.ok(key);assert.equal(JSON.parse(recoveryMemory.get(key)).body,'Verso\n\nEstrofa');await $('editor-close').onclick();assert.equal(recoveryMemory.has(key),false);assert.equal(recoveryMemory.has('guarda-active-editor'),false);
+});
+await test('labels can be created and toggled inside a note without dismissing the replacement popover',async()=>{
+ await $('new-note').onclick();input($('note-title'),'Etiquetas internas');
+ $('editor-more').onclick({currentTarget:$('editor-more')});
+ $('popover').querySelector('[data-menu=label]').dispatchEvent(new window.Event('click',{bubbles:true}));
+ await until(()=>!!$('label-search'));assert.equal($('popover').hidden,false);
+ input($('label-search'),'Rodaje nuevo');await $('create-label-here').onclick();
+ assert.equal($('popover').hidden,false);assert.match($('editor-labels').textContent,/Rodaje nuevo/);
+ const choice=$('popover').querySelector('[data-label-choice]');choice.checked=false;await $('popover').onchange({target:choice});
+ assert.doesNotMatch($('editor-labels').textContent,/Rodaje nuevo/);
+ await $('editor-close').onclick();
 });
