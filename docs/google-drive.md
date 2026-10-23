@@ -66,6 +66,12 @@ Relojes vectoriales y marcadores de eliminación distinguen cambios posteriores 
 
 No editar manualmente los JSON internos. Borrar una nota definitivamente se propaga al sincronizar; otros dispositivos sin conexión y revisiones anteriores de Drive pueden conservar copias. Borrar la carpeta por fuera de Guarda no equivale a borrar las notas locales y estas podrían volver a subirse al conectar.
 
+## Interrupciones y copias de conflicto (v0.7.15)
+
+La identidad de cada edición (sus relojes vectoriales y huella) se confirma en IndexedDB antes de que pueda enviarse a Drive. Si el servidor recibe la subida pero se pierde su respuesta, o aparece texto nuevo durante la red, el reintento utiliza una versión posterior en lugar de reutilizar el mismo reloj para textos diferentes. La reserva no marca la subida como completada ni permite aplicar descargas sobre ediciones locales nuevas.
+
+Las diferencias exclusivas de fecha de edición u orden no generan una copia de conflicto. Durante la sincronización se revisan también las copias generadas previamente: una copia solo se mueve a la papelera si pertenece a la misma nota, conserva el mismo texto, formato y demás campos, y otra versión contiene todas sus etiquetas y adjuntos. No se agrupan notas independientes ni versiones con texto, formato, etiquetas o archivos únicos. Las copias siguen completas en la papelera y restaurarlas impide que la limpieza vuelva a moverlas allí. La aplicación incorpora esta limpieza al cerrar el editor, junto con el resto de cambios de Drive.
+
 ## Verificación pendiente
 
 Las pruebas automatizadas simulan Drive/OAuth e IndexedDB y cubren sincronización entre dispositivos, conflictos con audio, eliminación, errores de red, cambios durante subidas, cuentas distintas, autorización cancelada, tokens vencidos y cargas reanudables. La autorización y transferencia real requieren el Client ID, habilitación de la API y una cuenta autorizada. No afirmar una prueba real ni de iPhone físico hasta completarla.

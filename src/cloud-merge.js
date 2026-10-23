@@ -7,6 +7,11 @@ export function canonical(value){
 export async function fingerprint(value){const bytes=new TextEncoder().encode(canonical(value));const hash=await crypto.subtle.digest('SHA-256',bytes);return [...new Uint8Array(hash)].map(n=>n.toString(16).padStart(2,'0')).join('');}
 const join=clocks=>{const result=Object.create(null);for(const c of clocks)for(const [d,n] of Object.entries(c))result[d]=Math.max(result[d]||0,n);return result;};
 const dominates=(a,b)=>Object.entries(b).every(([d,n])=>(a[d]||0)>=n);
+function conflictContent(value){
+ if(!value?.note)return canonical(value);
+ const {updatedAt,order,...note}=value.note;
+ return canonical({...value,note});
+}
 export function backupUnits(backup){
  const attachments=new Map(backup.attachments.map(a=>[a.id,a]));const units=new Map();
  for(const note of backup.notes){const files=note.attachments.map(id=>attachments.get(id));if(files.some(a=>!a||a.draft))throw Error('Hay una grabación pendiente de recuperar. Cerrá y volvé a abrir Guarda.');units.set('note:'+note.id,{note,attachments:files});}
@@ -43,8 +48,8 @@ export async function mergeRecords(groups){
   const live=frontier.filter(r=>!r.deleted).sort((a,b)=>canonical(a.value)<canonical(b.value)?-1:canonical(a.value)>canonical(b.value)?1:0);
   const winner=live.at(-1)||frontier[0],clock=join(frontier.map(r=>r.clock));
   resolved.set(key,{...winner,clock});
-  const distinct=[...new Map(live.map(r=>[canonical(r.value),r])).values()];
-  for(const r of distinct){if(canonical(r.value)===canonical(winner.value))continue;
+  const distinct=[...new Map(live.map(r=>[conflictContent(r.value),r])).values()];
+  for(const r of distinct){if(conflictContent(r.value)===conflictContent(winner.value))continue;
    const suffix='--conflict-'+(await fingerprint(r.value)).slice(0,16);
    const id=key.slice(key.indexOf(':')+1)+suffix;
    let value;if(key.startsWith('note:')){
@@ -56,6 +61,36 @@ export async function mergeRecords(groups){
  }
  for(const r of copies)if(!resolved.has(r.key))resolved.set(r.key,r);
  return {records:[...resolved.values()].sort((a,b)=>a.key<b.key?-1:a.key>b.key?1:0),conflicts};
+}
+const conflictRoot=id=>id.replace(/(?:--conflict-[a-f0-9]{16})+$/,'');
+function copyContent(value){
+ const {id,title,updatedAt,order,labels,attachments,deletedAt,conflictDuplicateOf,...note}=value.note;
+ return canonical({...note,title:(title||'Nota sin título').replace(/(?: \(conflicto\))+$/,'')});
+}
+function coversCopy(kept,copy){
+ if(copyContent(kept)!==copyContent(copy))return false;
+ if(!copy.note.labels.every(id=>kept.note.labels.includes(id)))return false;
+ const bytes=a=>{const {id,noteId,...content}=a;return canonical(content);};
+ const available=new Set(kept.attachments.map(bytes));
+ return copy.attachments.every(a=>available.has(bytes(a)));
+}
+export function collapseConflictCopies(records,device,now=Date.now()){
+ // Only generated conflict descendants of the SAME note qualify. Independent
+ // notes and versions with any unique content remain untouched. Keep full copies
+ // in the trash so the cleanup can be undone, and never repeat it after restore.
+ const groups=new Map();let count=0;
+ for(const r of records){if(r.deleted||!r.key.startsWith('note:')||r.value.note.deletedAt)continue;const root=conflictRoot(r.value.note.id);if(!groups.has(root))groups.set(root,[]);groups.get(root).push(r);}
+ for(const [root,group] of groups){
+  group.sort((a,b)=>Number(b.value.note.id===root)-Number(a.value.note.id===root)||a.key.localeCompare(b.key));
+  for(const copy of group){
+   if(copy.value.note.id===root||copy.value.note.conflictDuplicateOf||copy.value.note.deletedAt)continue;
+   const kept=group.find(r=>r!==copy&&!r.value.note.deletedAt&&coversCopy(r.value,copy.value)&&(!coversCopy(copy.value,r.value)||group.indexOf(r)<group.indexOf(copy)));
+   if(!kept)continue;
+   copy.clock=join([copy.clock,kept.clock]);copy.clock[device]=(copy.clock[device]||0)+1;
+   copy.value={...copy.value,note:{...copy.value.note,deletedAt:now,updatedAt:now,conflictDuplicateOf:kept.value.note.id}};count++;
+  }
+ }
+ return count;
 }
 export function materialize(records){
  const notes=[],labels=[],attachments=[];for(const r of records){if(r.deleted)continue;if(r.key.startsWith('note:')){notes.push(structuredClone(r.value.note));attachments.push(...structuredClone(r.value.attachments));}else labels.push(structuredClone(r.value));}

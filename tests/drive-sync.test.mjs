@@ -94,3 +94,38 @@ test('edits during an editor upload retain local text and retry with correct vec
  await assert.rejects(a.sync.sync(),e=>e.cause?.code==='SYNC_LOCAL_CHANGED');assert.equal((await a.store.allNotes())[0].body,'Durante');a.client.writeSnapshot=upload;await a.sync.sync();
  assert.ok([...f.files.values()].some(f=>f.records.some(r=>r.value?.note?.body==='Durante')));
 });
+test('typing during an accepted upload advances the next clock instead of creating false conflict notes',async t=>{
+ const f=await fixture(t),a=await f.device();await a.store.putNote(note('race','Original'));await a.sync.sync();a.sync.isBusy=()=>true;a.sync.isUploadBusy=()=>false;
+ const upload=a.client.writeSnapshot;await a.store.putNote(note('race','Primera edición'));
+ a.client.writeSnapshot=async(...args)=>{const id=await upload(...args);await a.store.putNote(note('race','Segunda edición mientras subía'));return id;};
+ await assert.rejects(a.sync.sync(),e=>e.cause?.code==='SYNC_LOCAL_CHANGED');a.client.writeSnapshot=upload;await a.sync.sync();a.sync.isBusy=()=>false;await a.sync.sync();
+ const notes=await a.store.allNotes();assert.equal(notes.length,1);assert.equal(notes[0].body,'Segunda edición mientras subía');
+});
+test('an interrupted response after Drive accepts an upload cannot duplicate a recovered local edit',async t=>{
+ const f=await fixture(t),a=await f.device();await a.store.putNote(note('interrupted','Original'));await a.sync.sync();const upload=a.client.writeSnapshot;await a.store.putNote(note('interrupted','Antes del cierre'));
+ a.client.writeSnapshot=async(...args)=>{await upload(...args);throw Error('App interrupted after Drive accepted');};await assert.rejects(a.sync.sync());
+ // Resume with only durable database state; all sync memory was lost.
+ await a.store.putNote(note('interrupted','Recuperada y editada'));a.client.writeSnapshot=upload;a.sync=new DriveSync({store:a.store,client:a.client,env:a.sync.env});await a.sync.sync();
+ assert.equal((await a.store.allNotes()).length,1);assert.equal((await a.store.allNotes())[0].body,'Recuperada y editada');
+});
+test('simultaneous identical text with different ordering/timestamps does not create a conflict copy',async()=>{
+ const value={note:note('same','Mismo texto'),attachments:[]};const other=structuredClone(value);other.note.updatedAt=200;other.note.order=500;
+ const merged=await mergeRecords([[{key:'note:same',clock:{a:1},deleted:false,value}],[{key:'note:same',clock:{b:1},deleted:false,value:other}]]);
+ assert.equal(materialize(merged.records).notes.length,1);
+});
+test('existing generated copies with no unique content move to trash once and converge without losing attachments',async t=>{
+ const f=await fixture(t),a=await f.device(),b=await f.device();const n={...note('root','Letra completa'),title:'',labels:['lyrics']};await a.store.putLabel({id:'lyrics',name:'Letras'});await a.store.attachToNote(n,{id:'voice-root',noteId:n.id,type:'audio/mpeg',name:'Voz',blob:new Blob(['voice'],{type:'audio/mpeg'})});
+ const duplicate={...n,id:'root--conflict-0123456789abcdef',title:'Nota sin título (conflicto)',labels:[],attachments:[]};await a.store.putNote(duplicate);
+ // These are not redundant: different lyrics, unique media, and an independent note.
+ await a.store.putNote({...duplicate,id:'root--conflict-1111111111111111',body:'Letra con otro verso'});
+ await a.store.attachToNote({...duplicate,id:'root--conflict-2222222222222222'},{id:'extra-voice',noteId:'root--conflict-2222222222222222',type:'audio/mpeg',name:'Otra voz',blob:new Blob(['another voice'],{type:'audio/mpeg'})});
+ await a.store.putNote({...duplicate,id:'independent',title:''});await a.sync.sync();await b.sync.sync();await a.sync.sync();await b.sync.sync();
+ for(const d of [a,b]){const all=await d.store.allNotes();assert.equal(all.filter(n=>!n.deletedAt).length,4);assert.ok(all.find(n=>n.id===duplicate.id).deletedAt);assert.equal(all.find(n=>n.id===duplicate.id).conflictDuplicateOf,'root');assert.equal(await (await d.store.getAttachment('voice-root')).blob.text(),'voice');assert.equal(await (await d.store.getAttachment('extra-voice')).blob.text(),'another voice');}
+ // Restoring from trash is respected; cleanup does not keep re-trashing a note.
+ const trashed=(await a.store.allNotes()).find(n=>n.id===duplicate.id);await a.store.putNote({...trashed,deletedAt:null});await a.sync.sync();await b.sync.sync();assert.equal((await b.store.allNotes()).find(n=>n.id===duplicate.id).deletedAt,null);
+});
+test('different local text while preparing sync aborts before any network transmission',async t=>{
+ const f=await fixture(t),a=await f.device();await a.store.putNote(note('before','Original'));const reserve=a.store.reserveSyncHeads.bind(a.store);let requests=0;
+ a.client.listSnapshots=async()=>{requests++;return [];};a.store.reserveSyncHeads=async(...args)=>{await a.store.putNote(note('before','Más texto'));return reserve(...args);};
+ await assert.rejects(a.sync.sync(),e=>e.cause?.code==='SYNC_LOCAL_CHANGED');assert.equal(requests,0);assert.equal(f.uploads,0);assert.equal((await a.store.allNotes())[0].body,'Más texto');
+});

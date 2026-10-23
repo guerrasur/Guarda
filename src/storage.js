@@ -227,6 +227,18 @@ export class GuardaStore extends EventTarget {
     for (const attachment of attachments) assert(noteIds.has(attachment.noteId) && noteMap.get(attachment.noteId).attachments.includes(attachment.id), 'Un adjunto no pertenece a ninguna nota.');
     return {...data,attachments};
   }
+  async reserveSyncHeads(accountId,heads,expectedRevision){
+    // Persist the identity of this edit BEFORE Drive can accept it. An interrupted
+    // response must not let different text reuse the same vector clock on retry.
+    return this._run(['settings'],'readwrite',async tx=>{
+      const settings=tx.objectStore('settings');
+      const actual=(await requestResult(settings.get('local-revision')))?.value||0;
+      if(actual!==expectedRevision)throw Object.assign(Error('Las notas cambiaron al preparar la subida. Se reintentará.'),{code:'SYNC_LOCAL_CHANGED'});
+      const previous=(await requestResult(settings.get('drive-state:'+accountId)))?.value||{};
+      settings.put({id:'drive-state:'+accountId,value:{...previous,heads}});
+      return actual+1;
+    },{type:'cloud-apply',contentChanged:false});
+  }
   async commitUploadState(accountId,heads,expectedRevision){
     return this._run(['settings'],'readwrite',async tx=>{
       const settings=tx.objectStore('settings');
