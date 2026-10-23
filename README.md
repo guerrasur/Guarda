@@ -119,3 +119,30 @@ Referencias: https://support.google.com/keep/answer/10017039 y https://support.g
 ## Seguridad y operación
 
 La versión 0.7.9 incorpora límites sin contadores en D1, pausas de reintento, mantenimiento y pruebas en workerd. Ver [límites, auditoría y operación](docs/security.md).
+
+### Modo cuaderno (prototipo v0.8.0)
+
+Desde el menú izquierdo, **Modo cuaderno** permite crear un cuaderno con título.
+El tamaño inicial es **25 hojas de 250 caracteres**; al crearlo se puede elegir
+25, 50 o 100 hojas, y 200 o 250 caracteres por hoja. Esa elección queda fija en
+el cuaderno y no depende del dispositivo. Las hojas tienen diez renglones de
+20 o 25 posiciones; un salto de línea ocupa lo que queda del renglón.
+
+La hoja se adapta al área visible, incluso cuando aparece el teclado. Se puede
+avanzar, retroceder o ingresar el número de cualquier hoja, y continuar escribiendo
+en ella mientras quede espacio. Cada cuaderno recuerda su última hoja visitada
+en ese dispositivo. No se reordenan las hojas ni se agranda un cuaderno existente.
+
+Borrar, cortar o reemplazar una selección **tacha el texto original** y conserva
+su espacio; también hay un botón Tachar. Las sustituciones añaden el nuevo texto
+después del original tachado. Un pegado que excede el espacio disponible se
+rechaza completo con un aviso para evitar pérdidas silenciosas. No hay borrado
+real ni deshacer que elimine tinta en este prototipo.
+
+Los cuadernos se guardan como registros independientes de las notas normales,
+con IndexedDB, recuperación local inmediata, exportación/importación y la
+sincronización opcional de Drive ya existente. La descarga de cambios y las
+actualizaciones de la app esperan a que se cierre el cuaderno; las subidas
+pueden realizarse tras la pausa de escritura habitual. Las pruebas automatizadas
+incluyen límites, tachados, reemplazos, pegado, navegación y recuperación; no
+sustituyen una prueba en un iPhone físico.

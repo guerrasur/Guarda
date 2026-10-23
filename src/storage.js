@@ -1,3 +1,4 @@
+import { validateNotebook } from './notebook.js';
 const STORES = ['notes', 'attachments', 'labels', 'settings'];
 const requestResult = request => new Promise((resolve, reject) => {
   request.onsuccess = () => resolve(request.result);
@@ -16,6 +17,7 @@ function validId(value) { return typeof value === 'string' && value.length > 0 &
 function object(value) { return value && typeof value === 'object' && !Array.isArray(value); }
 function assert(condition, message) { if (!condition) throw new Error(message); }
 function validateNote(note) {
+  validateNotebook(note);
   assert(object(note) && validId(note.id), 'La nota no tiene un identificador válido.');
   assert(typeof note.title === 'string' && typeof note.body === 'string', 'El texto de la nota no es válido.');
   assert(Array.isArray(note.attachments) && note.attachments.every(validId), 'Los adjuntos de la nota no son válidos.');
