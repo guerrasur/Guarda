@@ -135,7 +135,7 @@ en ese dispositivo. No se reordenan las hojas ni se agranda un cuaderno existent
 
 Borrar, cortar o reemplazar una selección **tacha el texto original** y conserva
 su espacio; también hay un botón Tachar. Las sustituciones añaden el nuevo texto
-después del original tachado. Un pegado que excede el espacio disponible se
+al final de toda la hoja, sin desplazar el original tachado ni el texto posterior. Un pegado que excede el espacio disponible se
 rechaza completo con un aviso para evitar pérdidas silenciosas. No hay borrado
 real ni deshacer que elimine tinta en este prototipo.
 
@@ -146,3 +146,12 @@ actualizaciones de la app esperan a que se cierre el cuaderno; las subidas
 pueden realizarse tras la pausa de escritura habitual. Las pruebas automatizadas
 incluyen límites, tachados, reemplazos, pegado, navegación y recuperación; no
 sustituyen una prueba en un iPhone físico.
+
+#### Ajustes v0.8.1
+
+El cuaderno sigue la altura y los desplazamientos de la pantalla visible cuando
+iOS abre el teclado, bloqueando el desplazamiento del fondo y restaurándolo al
+salir. La escritura se agrega siempre al final de la hoja; seleccionar otra
+posición sirve para tachar. Una marca verde fija muestra dónde continúa la
+escritura, mientras el cursor rojo indica la posición de tachado. Los cuadernos
+ya creados y sus tachados se conservan sin migración.

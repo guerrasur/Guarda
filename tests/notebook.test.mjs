@@ -49,3 +49,9 @@ test('invalid notebook data is rejected before it can replace stored content',as
   for(const pageCount of [25,50,100])for(const capacity of [200,250]){const book=createNotebook('Tamaño',{pageCount,capacity});assert.equal(book.notebook.pageCount,pageCount);const page=editPage([],{start:0,text:'x'.repeat(capacity),...book.notebook}).page;assert.equal(pageSpace(page,book.notebook),capacity);validateNotebook({...book,notebook:{...book.notebook,pages:[page]}});assert.throws(()=>editPage(page,{start:capacity,text:'!',...book.notebook}),/espacio/);}
   assert.throws(()=>createNotebook('Inválido',{pageCount:101}),/tamaño/);
  });
+
+test('all inserted ink appends after the entire sentence even after crossing out its middle or ending',()=>{
+ const original=ink('Inicio medio final');const crossed=editPage(original,{start:7,end:12,deletion:'deleteContentBackward'}).page;
+ for(const operation of [{start:0,text:'!'},{start:9,text:'?'},{start:7,end:12,text:'otra'}]){const result=editPage(crossed,operation);assert.equal(pageText(result.page),pageText(original)+operation.text);assert.deepEqual(result.page.slice(0,original.length).map(c=>c.char),original.map(c=>c.char));assert.equal(result.caret,result.page.length);}
+ const last=editPage(original,{start:original.length,deletion:'deleteContentBackward'});const next=editPage(last.page,{start:last.caret,text:'x'});assert.equal(pageText(next.page),'Inicio medio finalx');assert.equal(next.page[original.length-1].struck,true);
+});

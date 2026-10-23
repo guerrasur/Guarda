@@ -7,10 +7,44 @@ export function initNotebooks({store, showError, onClose, onPending}) {
  const layer = document.createElement('dialog'); layer.className='notebook-layer'; layer.setAttribute('aria-label','Modo cuaderno'); document.body.append(layer);
  let storage; try { storage=globalThis.localStorage; } catch {}
  const recovery=new DraftRecovery(storage);
- let book=null, pageIndex=0, queue=Promise.resolve(), busy=false, composition=false, previousFocus=null, observer=null;
+ let book=null, pageIndex=0, queue=Promise.resolve(), busy=false, composition=false, previousFocus=null, observer=null, scrollLock=null;
  const $=id=>layer.querySelector(`#${id}`);
  const page=()=>book.notebook.pages[pageIndex] || [];
  const format=()=>notebookFormat(book);
+ function lockScroll() {
+  if(scrollLock)return;
+  scrollLock={body:document.body.style.cssText,root:document.documentElement.style.overflow,x:globalThis.scrollX||0,y:globalThis.scrollY||0};
+  Object.assign(document.body.style,{position:'fixed',top:`-${scrollLock.y}px`,left:'0',width:'100%',overflow:'hidden'});
+  document.documentElement.style.overflow='hidden';
+ }
+ function unlockScroll() {
+  if(!scrollLock)return;const previous=scrollLock;scrollLock=null;
+  document.body.style.cssText=previous.body;document.documentElement.style.overflow=previous.root;
+  globalThis.scrollTo?.({left:previous.x,top:previous.y,behavior:'instant'});
+ }
+ function syncViewport() {
+  if(!layer.open)return;
+  const viewport=globalThis.visualViewport;
+  // Safari pans the visual viewport as well as shrinking it for the keyboard.
+  // A fixed surface must follow BOTH offsets, not just the new height.
+  layer.style.setProperty('--notebook-top',`${viewport?.offsetTop||0}px`);
+  layer.style.setProperty('--notebook-left',`${viewport?.offsetLeft||0}px`);
+  layer.style.setProperty('--notebook-height',viewport?`${viewport.height}px`:'100dvh');
+  layer.style.setProperty('--notebook-width',viewport?`${viewport.width}px`:'100vw');
+  layer.scrollTop=0;layer.scrollLeft=0;
+  const input=$('nb-input');if(input){input.scrollTop=0;input.scrollLeft=0;}
+  fit();
+ }
+ function trackCaret() {
+  const input=$('nb-input'),paper=$('nb-paper');if(!input||!book)return;
+  const {columns,rows,capacity}=format(),used=pageSpace(page(),format());
+  const marker=$('nb-write-caret');
+  marker.style.left=`min(${used===capacity?columns:used%columns}ch, calc(100% - 2px))`;
+  marker.style.top=`${Math.min(rows-1,Math.floor(used/columns))*1.5}em`;
+  const range=selection(),taching=range.start!==page().length||range.end!==range.start;
+  paper.dataset.taching=String(taching);
+  $('nb-cursor-status').textContent=taching?'Rojo: tachado · Verde: seguís acá':'Verde: seguís escribiendo acá';
+ }
  function report(error) { const banner=$('nb-error');if(banner){banner.textContent=error.message;banner.hidden=false;}showError(error); }
  function remember() { try { storage?.setItem('guarda-notebook-position',JSON.stringify({id:book.id,page:pageIndex})); storage?.setItem('guarda-notebook-page:'+book.id,String(pageIndex)); } catch(error) { report(error); } }
  function save() {
@@ -26,7 +60,7 @@ export function initNotebooks({store, showError, onClose, onPending}) {
   queue.catch(()=>{}); if($('nb-status'))$('nb-status').textContent='Guardando…';
   return queue;
  }
- async function close() { await queue; layer.close(); observer?.disconnect(); book=null; onClose?.(); previousFocus?.focus?.({preventScroll:true}); }
+ async function close() { $('nb-input')?.blur();await queue; layer.close(); observer?.disconnect(); book=null;unlockScroll();onClose?.(); previousFocus?.focus?.({preventScroll:true}); }
  function bindClose() { $('nb-close').onclick=()=>close().catch(report); }
  function shell(content) { observer?.disconnect(); layer.innerHTML=`<div class="notebook-app">${content}<p class="notebook-error" id="nb-error" role="alert" hidden></p></div>`; bindClose(); }
  async function shelf(forceCreate=false) {
@@ -44,9 +78,11 @@ export function initNotebooks({store, showError, onClose, onPending}) {
   pageIndex=Math.max(0,Math.min(book.notebook.pageCount-1,Number(savedPage??(position?.id===id?position.page:0))||0));remember();render();
  }
  function fit() {
-  const space=$('nb-writing-space'); if(!space)return;
+  const space=$('nb-writing-space'); if(!space||!book)return;
   const r=space.getBoundingClientRect();
-  const size=Math.max(1,Math.min((r.width-32)/(format().columns*.6021),(r.height-12)/(format().rows*1.5)));
+  const paper=$('nb-paper'),fontSize=parseFloat(globalThis.getComputedStyle?.(paper).fontSize)||12;
+  const widthPerEm=globalThis.getComputedStyle?paper.getBoundingClientRect().width/fontSize:format().columns*.6021;
+  const size=Math.max(1,Math.min((r.width-32)/widthPerEm,(r.height-12)/(format().rows*1.5)));
   space.style.setProperty('--ink-size',`${size}px`);
  }
  function paint(caret=null) {
@@ -55,6 +91,7 @@ export function initNotebooks({store, showError, onClose, onPending}) {
   $('nb-count').textContent=`${pageSpace(ink,format())} / ${format().capacity}`;
   $('nb-full').hidden=pageSpace(ink,format())<format().capacity;
   if(caret!==null){const offset=ink.slice(0,caret).map(c=>c.char).join('').length;$('nb-input').setSelectionRange(offset,offset);}
+  $('nb-input').scrollTop=0;$('nb-input').scrollLeft=0;trackCaret();
  }
  function selection() {
   const input=$('nb-input');return {start:Array.from(input.value.slice(0,input.selectionStart)).length,end:Array.from(input.value.slice(0,input.selectionEnd)).length};
@@ -73,8 +110,8 @@ export function initNotebooks({store, showError, onClose, onPending}) {
   const text=after.slice(start,tail).join('');change({start,end,text,...(!text&&end>start?{deletion:'deleteContentBackward'}:{})});
  }
  function render() {
-  shell(`<header class="notebook-top"><button class="icon-button" id="nb-close" aria-label="Volver a Guarda">${icon('back')}</button><div class="notebook-heading"><strong>${esc(book.title)}</strong><small id="nb-status" role="status">Guardado local</small></div><button class="text-button" id="nb-shelf">Cuadernos</button></header><div class="notebook-page-caption"><span>HOJA ${String(pageIndex+1).padStart(2,'0')}</span><span id="nb-count"></span></div><div class="notebook-writing-space" id="nb-writing-space" style="--nb-columns:${format().columns}ch;--nb-lines:${format().rows*1.5}em"><div class="notebook-writing"><pre id="nb-ink" class="notebook-ink" aria-hidden="true"></pre><textarea id="nb-input" class="notebook-ink" aria-label="Escribir en la hoja ${pageIndex+1}. Borrar tacha el texto sin eliminarlo." aria-describedby="nb-help" wrap="soft" spellcheck="false" autocorrect="off" autocapitalize="sentences"></textarea></div></div><div class="notebook-full" id="nb-full" role="status" hidden>Hoja completa. Pasá a la siguiente.</div><footer class="notebook-footer"><div class="notebook-pagination"><button class="icon-button" id="nb-prev" aria-label="Hoja anterior" ${pageIndex===0?'disabled':''}>${icon('back')}</button><label>Hoja <input id="nb-jump" type="number" inputmode="numeric" min="1" max="${book.notebook.pageCount}" value="${pageIndex+1}" aria-label="Ir a la hoja"> de ${book.notebook.pageCount}</label><button class="icon-button" id="nb-next" aria-label="Hoja siguiente" ${pageIndex===book.notebook.pageCount-1?'disabled':''}>${icon('chevron')}</button><button class="text-button" id="nb-strike">Tachar</button></div><p id="nb-help">Seleccioná texto y tocá Tachar, o usá borrar. El espacio escrito no se recupera.</p></footer>`);
-  const input=$('nb-input');paint();fit();
+  shell(`<header class="notebook-top"><button class="icon-button" id="nb-close" aria-label="Volver a Guarda">${icon('back')}</button><div class="notebook-heading"><strong>${esc(book.title)}</strong><small id="nb-status" role="status">Guardado local</small></div><button class="text-button" id="nb-shelf">Cuadernos</button></header><div class="notebook-page-caption"><span>HOJA ${String(pageIndex+1).padStart(2,'0')}</span><span id="nb-count"></span></div><div class="notebook-writing-space" id="nb-writing-space" style="--nb-columns:${format().columns}ch;--nb-lines:${format().rows*1.5}em"><div class="notebook-writing" id="nb-paper"><pre id="nb-ink" class="notebook-ink" aria-hidden="true"></pre><textarea id="nb-input" class="notebook-ink" aria-label="Escribir en la hoja ${pageIndex+1}. Borrar tacha el texto sin eliminarlo." aria-describedby="nb-help" wrap="soft" spellcheck="false" autocorrect="off" autocapitalize="sentences"></textarea><span id="nb-write-caret" class="notebook-write-caret" aria-hidden="true"></span></div></div><div class="notebook-full" id="nb-full" role="status" hidden>Hoja completa. Pasá a la siguiente.</div><footer class="notebook-footer"><div class="notebook-pagination"><button class="icon-button" id="nb-prev" aria-label="Hoja anterior" ${pageIndex===0?'disabled':''}>${icon('back')}</button><label>Hoja <input id="nb-jump" type="number" inputmode="numeric" min="1" max="${book.notebook.pageCount}" value="${pageIndex+1}" aria-label="Ir a la hoja"> de ${book.notebook.pageCount}</label><button class="icon-button" id="nb-next" aria-label="Hoja siguiente" ${pageIndex===book.notebook.pageCount-1?'disabled':''}>${icon('chevron')}</button><button class="text-button" id="nb-strike">Tachar</button></div><p id="nb-cursor-status" role="status">Verde: seguís escribiendo acá</p><p id="nb-help">Seleccioná para tachar. Lo nuevo se escribe al final; nada se desplaza.</p></footer>`);
+  const input=$('nb-input');paint(page().length);syncViewport();
   if(typeof ResizeObserver!=='undefined'){observer=new ResizeObserver(fit);observer.observe($('nb-writing-space'));}
   $('nb-shelf').onclick=()=>shelf().catch(report);
   async function turn(index){input.blur();await queue;pageIndex=Math.max(0,Math.min(book.notebook.pageCount-1,index));remember();render();}
@@ -95,12 +132,18 @@ export function initNotebooks({store, showError, onClose, onPending}) {
   input.addEventListener('input',()=>{if(!composition)reconcile();});
   input.addEventListener('compositionstart',()=>composition=true);
   input.addEventListener('compositionend',()=>{composition=false;reconcile();});
+  for(const event of ['select','keyup','pointerup'])input.addEventListener(event,trackCaret);
+  input.addEventListener('focus',()=>{trackCaret();syncViewport();globalThis.requestAnimationFrame?.(syncViewport);});
+  input.addEventListener('scroll',()=>{input.scrollTop=0;input.scrollLeft=0;});
  }
  layer.addEventListener('cancel',event=>{event.preventDefault();close().catch(report);});
  // The app's global keyboard shortcuts must not create ordinary notes here.
  layer.addEventListener('keydown',event=>event.stopPropagation());
  document.addEventListener('visibilitychange',()=>{if(document.hidden&&book){if(composition){composition=false;reconcile();}save();}});
  window.addEventListener('pagehide',()=>{if(book)save();});
- globalThis.visualViewport?.addEventListener('resize',()=>{if(layer.open){layer.style.setProperty('--notebook-height',`${visualViewport.height}px`);fit();}});
- return {get isOpen(){return layer.open;},flush:()=>queue,async open(){previousFocus=document.activeElement;layer.showModal();if(globalThis.visualViewport)layer.style.setProperty('--notebook-height',`${visualViewport.height}px`);let position;try{position=JSON.parse(storage?.getItem('guarda-notebook-position'));}catch{}if(position?.id)await openBook(position.id);else await shelf();}};
+ for(const event of ['resize','scroll'])globalThis.visualViewport?.addEventListener(event,syncViewport);
+ window.addEventListener('resize',syncViewport);
+ layer.addEventListener('scroll',()=>{layer.scrollTop=0;layer.scrollLeft=0;});
+ document.addEventListener('selectionchange',()=>{if(layer.open&&book)trackCaret();});
+ return {get isOpen(){return layer.open;},flush:()=>queue,async open(){if(layer.open)return;previousFocus=document.activeElement;lockScroll();try{layer.showModal();}catch(error){unlockScroll();throw error;}syncViewport();let position;try{position=JSON.parse(storage?.getItem('guarda-notebook-position'));}catch{}if(position?.id)await openBook(position.id);else await shelf();}};
 }

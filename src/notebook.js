@@ -42,9 +42,10 @@ export function editPage(page, {start, end = start, text = '', deletion = null, 
   return {page:result, caret:start};
  }
  const ink = Array.from(text.replace(/\r\n?/g,'\n').replace(/\t/g,'    ').replace(/[\u0000-\u0008\u000b-\u001f]/g,'')).map(char => ({char,struck:false}));
- // Replacing a selection crosses out its old text, then adds new ink after it.
+ // Paper is immutable in position: selecting old ink is only for crossing it
+ // out. Every new character goes after ALL existing ink, including strikes.
  for (let i=start;i<end;i++) result[i].struck = true;
- result.splice(end, 0, ...ink);
+ result.push(...ink);
  if (pageSpace(result,{columns,rows}) > columns*rows) throw Error('Esta hoja no tiene espacio suficiente. Pasá a la siguiente hoja; lo tachado también ocupa lugar.');
- return {page:result, caret:end+ink.length};
+ return {page:result, caret:result.length};
 }
