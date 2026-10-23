@@ -7,7 +7,7 @@ import { GOOGLE_CLIENT_ID, DRIVE_BROKER_URL } from './drive-config.js';
 const escape=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function initDrive({store,isBusy,isUploadBusy=isBusy,onApplied,utility,closeUtility,showError,env=globalThis,brokerUrl=DRIVE_BROKER_URL}){
  const $=id=>env.document.getElementById(id);let clientId=GOOGLE_CLIENT_ID,timer=null,remembered=null,enabled=false,message='Drive sin conectar',currentState='hidden',changeVersion=0,flight=null,prepared=false,preparedId='',preparing=false,prepareFailed=false,backoff=3000,retryAt=0;
- const listeners=new Set();let pendingDownload=false;let retryCount=0,retriesPaused=false;let prepareFlight=null,sessionCandidate=null,renewalAttempted=false,initialized=false,boundAccount=null;
+ const listeners=new Set();let idleUntil=0;let pendingDownload=false;let retryCount=0,retriesPaused=false;let prepareFlight=null,sessionCandidate=null,renewalAttempted=false,initialized=false,boundAccount=null;
  const bridge=new DriveSessionBridge({env});
  const client=brokerUrl?new PersistentDriveClient({env,store,brokerUrl}):new DriveClient({env});
  const getState=()=>({connected:client.connected,enabled,user:client.user||remembered,state:currentState,message,working:!!flight||!!client.pending,preparing,folder:client.folder,folderName:driveFolderName(client.user||remembered)});
@@ -31,6 +31,7 @@ export function initDrive({store,isBusy,isUploadBusy=isBusy,onApplied,utility,cl
  function attempt(manual=false){
   if(flight)return flight;
   if(manual){retryCount=0;retriesPaused=false;}else if(retriesPaused)return Promise.resolve({paused:true});
+  if(!manual&&idleUntil>Date.now()){queueRetry(Math.max(idleUntil-Date.now(),retryAt-Date.now()));return Promise.resolve({scheduled:true});}
   if(!manual&&retryAt>Date.now())return Promise.resolve({scheduled:true});
   env.clearTimeout(timer);timer=null;retryAt=0;
   flight=runAttempt().finally(()=>{flight=null;emit();});emit();return flight;
@@ -86,7 +87,7 @@ export function initDrive({store,isBusy,isUploadBusy=isBusy,onApplied,utility,cl
    throw error;
   }
  }
- const schedule=()=>{changeVersion++;if(env.navigator?.onLine===false){offline();return;}if(client.connected){indicator('pending','Cambios pendientes de guardar en Google Drive');if(!retryAt)queueRetry();}else if(enabled)background();};
+ const schedule=()=>{changeVersion++;idleUntil=Date.now()+3000;if(env.navigator?.onLine===false){offline();return;}if(client.connected){indicator('pending','Cambios pendientes de guardar en Google Drive');queueRetry(Math.max(3000,retryAt-Date.now()));}else if(enabled)background();};
  store.addEventListener('change',event=>{if(event.detail.type!=='cloud-apply'&&event.detail.type!=='setting'&&!event.detail.id?.startsWith('drive-'))schedule();});
  const resume=()=>{if(client.connected&&(currentState==='pending'||pendingDownload)&&!flight&&!retryAt)queueRetry();};
  env.setInterval(()=>{if(!env.document.hidden)background();},60000);

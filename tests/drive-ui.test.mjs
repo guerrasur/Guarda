@@ -66,13 +66,13 @@ test('concurrent sync requests share one cycle and controls recover when it fini
  }finally{DriveSync.prototype.sync=original;}
 });
 test('offline changes wait without network requests and recover on the online event',async()=>{
- const original=DriveSync.prototype.sync;let calls=0;DriveSync.prototype.sync=async()=>{calls++;return {};};
+ const original=DriveSync.prototype.sync,oldNow=Date.now;let time=oldNow();Date.now=()=>time;let calls=0;DriveSync.prototype.sync=async()=>{calls++;return {};};
  try{
   const f=fixture({});await f.ui.open();await settle();f.document.getElementById('drive-connect').onclick();await settle();await settle();const before=calls;
   f.env.navigator.onLine=false;f.env.window.dispatchEvent(new f.env.window.Event('offline'));f.change();await f.ui.sync();assert.equal(f.ui.getState().state,'offline');assert.equal(calls,before);assert.equal(f.ui.getState().connected,true);
-  f.env.navigator.onLine=true;f.env.window.dispatchEvent(new f.env.window.Event('online'));await settle();assert.equal(f.ui.getState().state,'synced');assert.equal(calls,before+1);assert.equal(f.requests.length,1);
+  time+=3000;f.env.navigator.onLine=true;f.env.window.dispatchEvent(new f.env.window.Event('online'));await settle();assert.equal(f.ui.getState().state,'synced');assert.equal(calls,before+1);assert.equal(f.requests.length,1);
   await f.ui.open();await settle();await f.document.getElementById('drive-disconnect').onclick();
- }finally{DriveSync.prototype.sync=original;}
+ }finally{DriveSync.prototype.sync=original;Date.now=oldNow;}
 });
 test('temporary Drive errors retry with backoff while permanent errors do not loop',async()=>{
  const original=DriveSync.prototype.sync;let failure;DriveSync.prototype.sync=async()=>{if(failure)throw failure;return {};};
@@ -276,4 +276,13 @@ test('background failures stop after eight attempts and explicit retry can recov
   failure=false;await f.ui.sync();assert.equal(f.ui.getState().state,'synced');
   await f.ui.open();await settle();await f.document.getElementById('drive-disconnect').onclick();
  }finally{DriveSync.prototype.sync=original;}
+});
+test('every edit restarts the three second upload wait and foreground checks respect the pause',async()=>{
+ const original=DriveSync.prototype.sync,oldNow=Date.now;let calls=0,time=100000;Date.now=()=>time;DriveSync.prototype.sync=async()=>{calls++;return {};};
+ try{
+  const f=fixture({});await f.ui.open();await settle();f.document.getElementById('drive-connect').onclick();await settle();await settle();const before=calls;
+  f.ui.markPending();assert.equal(f.retryDelay,3000);time+=2000;f.ui.markPending();assert.equal(f.retryDelay,3000);
+  time+=500;f.env.document.dispatchEvent(new f.env.window.Event('visibilitychange'));await settle();assert.equal(calls,before);assert.equal(f.retryDelay,2500);
+  time+=2500;await f.retry();assert.equal(calls,before+1);assert.equal(f.ui.getState().state,'synced');
+ }finally{DriveSync.prototype.sync=original;Date.now=oldNow;}
 });
