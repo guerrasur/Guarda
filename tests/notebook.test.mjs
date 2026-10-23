@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { indexedDB } from 'fake-indexeddb';
-import { createNotebook, editPage, pageText, pageSpace, PAGE_CAPACITY, validateNotebook, inkPasses, strikeRuns } from '../src/notebook.js';
+import { createNotebook, editPage, pageText, pageSpace, PAGE_CAPACITY, validateNotebook, inkPasses, strikeRuns, lineContinuations } from '../src/notebook.js';
 import { GuardaStore } from '../src/storage.js';
 import { DraftRecovery } from '../src/draft-recovery.js';
 import { backupUnits, localRecords, materialize } from '../src/cloud-merge.js';
@@ -66,4 +66,22 @@ test('stroke runs form continuous curves without joining different rows, clean t
  const page=ink('a'.repeat(43));for(const c of page)c.struck=true;page[1].passes=2;page[3].struck=false;
  assert.deepEqual(strikeRuns(page).map(r=>[r.row,r.start,r.end,r.passes]),[[0,0,1,1],[0,1,2,2],[0,2,3,1],[0,4,40,1],[1,0,3,1]]);
  const breaks=ink('Hola\nmundo');for(const c of breaks)c.struck=true;assert.deepEqual(strikeRuns(breaks).map(r=>[r.row,r.start,r.end]),[[0,0,4],[1,0,5]]);
+});
+
+test('the margin warns one character before the edge, then records a visual continuation without shifting ink',()=>{
+ const before=ink('a'.repeat(38));assert.equal(lineContinuations(before).warning,null);
+ const near=editPage(before,{start:before.length,text:'b'}).page;assert.deepEqual(lineContinuations(near),{continuations:[],warning:0});
+ const edge=editPage(near,{start:near.length,text:'c'}).page;assert.deepEqual(lineContinuations(edge),{continuations:[],warning:0});
+ const next=editPage(edge,{start:edge.length,text:'d'}).page;assert.deepEqual(lineContinuations(next),{continuations:[0],warning:null});
+ assert.equal(pageText(next),'a'.repeat(38)+'bcd');assert.deepEqual(next.slice(0,edge.length),edge);assert.equal(pageSpace(next),41);
+});
+test('manual newlines, existing hyphens, spaces and punctuation never receive false continuation marks',()=>{
+ for(const text of ['a'.repeat(40)+' fin','a'.repeat(39)+'-b','a'.repeat(40)+'\nb','a'.repeat(39)+'.a'])assert.deepEqual(lineContinuations(ink(text)).continuations,[]);
+ const wide=ink('á'.repeat(81));assert.deepEqual(lineContinuations(wide).continuations,[0,1]);
+ const narrow=editPage([],{start:0,text:'ñ'.repeat(36),columns:35}).page;assert.deepEqual(lineContinuations(narrow,{columns:35}).continuations,[0]);
+});
+test('crossing text out never moves or removes its continuation marks or consumes extra capacity',()=>{
+ const page=ink('a'.repeat(81));const before=structuredClone(page);const markers=lineContinuations(page);
+ assert.deepEqual(page,before);let crossed=editPage(page,{start:0,end:81,deletion:'deleteByCut'}).page;crossed=editPage(crossed,{start:0,end:81,deletion:'deleteByCut'}).page;
+ assert.deepEqual(lineContinuations(crossed),markers);assert.equal(pageText(crossed),pageText(page));assert.equal(pageSpace(crossed),pageSpace(page));
 });

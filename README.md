@@ -120,7 +120,7 @@ Referencias: https://support.google.com/keep/answer/10017039 y https://support.g
 
 La versión 0.7.9 incorpora límites sin contadores en D1, pausas de reintento, mantenimiento y pruebas en workerd. Ver [límites, auditoría y operación](docs/security.md).
 
-### Modo cuaderno (v0.9.1)
+### Modo cuaderno (v0.9.2)
 
 Desde el menú izquierdo, **Modo cuaderno** abre el último cuaderno y su última
 hoja visitada. La estantería permite crear otros con título y 25, 50 o 100 hojas.
@@ -167,3 +167,10 @@ y su licencia se incluyen en el caché sin conexión, sin proveedores externos
 en tiempo de ejecución. El generador opcional está en `scripts/build_notebook_font.py`;
 la fuente original está en https://github.com/google/fonts/tree/main/ofl/patrickhand
 y su SHA256 es `0f173b3e6cb6d1af25babf7f0057c5ac4ee11f9992b0469bb817e967ef4ad0fc`.
+
+Antes de completar la última posición de un renglón, un guion tenue en el margen
+avisa del corte próximo con un pulso suave. Si la palabra continúa en el siguiente
+renglón, queda un guion fijo en ese margen. Las anotaciones no ocupan posiciones,
+no se copian como texto y nunca desplazan letras o tachados. Los saltos manuales
+y las palabras que terminan justo en el margen no reciben un guion fijo. En modo
+lectura/tachado no titila el aviso; movimiento reducido lo muestra estático.

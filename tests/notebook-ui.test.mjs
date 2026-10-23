@@ -91,3 +91,12 @@ await test('selected text keeps its selection for a second irregular stroke with
  assert.ok($('nb-strokes').querySelector('path'));$('nb-strike').onclick();await ui.flush();assert.equal(text(),first);assert.ok($('nb-strokes').querySelector('.nb-stroke-heavy'));
  assert.ok($('nb-ink').querySelector('s[data-passes="2"]'));await $('nb-close').onclick();store.close();
 });
+
+await test('the faint warning becomes a fixed margin hyphen while text, positions and stored character count stay intact',async()=>{
+ await ui.open();await $('nb-shelf').onclick();$('nb-new').onclick();await create('Márgenes');
+ caret(0);input('insertText','ñ'.repeat(39));await ui.flush();assert.ok($('nb-wrap-markers').querySelector('.nb-wrap-warning[data-row="0"]'));assert.equal($('nb-wrap-markers').querySelector('.nb-wrap-fixed'),null);
+ input('insertText','o');await ui.flush();assert.ok($('nb-wrap-markers').querySelector('.nb-wrap-warning'));
+ input('insertText','a');await ui.flush();assert.equal(text(),'ñ'.repeat(39)+'oa');assert.equal($('nb-ink').textContent,text());assert.ok($('nb-wrap-markers').querySelector('.nb-wrap-fixed[data-row="0"]'));assert.equal($('nb-wrap-markers').querySelector('.nb-wrap-warning'),null);
+ const saved=(await store.allNotes()).find(n=>n.title==='Márgenes');assert.equal(saved.notebook.pages[0].length,41);assert.equal(saved.body,text());
+ await $('nb-close').onclick();await ui.open();assert.ok($('nb-wrap-markers').querySelector('.nb-wrap-fixed[data-row="0"]'));await $('nb-close').onclick();store.close();
+});

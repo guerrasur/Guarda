@@ -9,6 +9,17 @@ export const notebookFormat = book => ({columns:book.notebook.columns, rows:book
 export const isNotebook = note => note?.kind === 'notebook';
 export const pageText = page => page.map(ink => ink.char).join('');
 export const inkPasses = ink => ink.struck ? ink.passes ?? 1 : 0;
+// Margin annotations never enter the ink array or take up character capacity.
+export function lineContinuations(page,{columns=PAGE_COLUMNS}={}) {
+ const continuations=[];let row=0,column=0,previous='';
+ const word=char=>/[\p{L}\p{N}\p{M}]/u.test(char);
+ for(const {char} of page){
+  if(char==='\n'){row++;column=0;previous='';continue;}
+  if(column===columns){if(word(previous)&&word(char))continuations.push(row);row++;column=0;}
+  column++;previous=char;
+ }
+ return {continuations,warning:column>=columns-1&&word(previous)?row:null};
+}
 function crossInk(ink) { ink.passes=Math.min(2,inkPasses(ink)+1);ink.struck=true; }
 // Consecutive strokes share a curve, but each physical row remains independent.
 export function strikeRuns(page,{columns=PAGE_COLUMNS}={}) {

@@ -214,3 +214,12 @@ body.dark .notebook-layer,html[data-theme=dark] .notebook-layer{--nb-surround:va
 .notebook-ink s{text-decoration:none;opacity:1}.nb-strokes{position:absolute;inset:0;width:100%;height:100%;overflow:hidden;pointer-events:none;color:#343a31;z-index:1}.nb-stroke{fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}.nb-stroke-heavy{stroke-width:4.5}.notebook-write-caret{z-index:2}
 .nb-panel-card{background:var(--nb-surround);color:var(--nb-ui-ink)}.nb-thumbnail{color:#343a31;background:#f8f3e6}.nb-quick-help small{color:inherit;opacity:.65}.notebook-cover{color:#343a31}.notebook-shelf label{color:inherit;opacity:.7}.notebook-shelf select{background:var(--nb-surround);color:var(--nb-ui-ink);border-color:var(--nb-ui-line)}.notebook-shelf form{border-color:var(--nb-ui-line)}
 .nb-thumbnail-text{font-family:"Guarda Hand",monospace}
+
+/* Warnings and continuation hyphens sit in the margin, outside the ink grid. */
+.nb-sheet{padding-right:20px}
+.nb-wrap-markers{position:absolute;inset:0;pointer-events:none;z-index:2;overflow:visible;color:#343a31}
+.nb-wrap-mark{position:absolute;left:calc(100% + .08em);width:1ch;height:1.3em;line-height:1.3em;text-align:center;font:inherit;line-height:1.3em;opacity:.85}
+.nb-wrap-warning{opacity:.22;animation:nb-margin-hint 1.4s ease-in-out infinite}
+.notebook-writing:not([data-tool=write]) .nb-wrap-warning{display:none}
+@keyframes nb-margin-hint{0%,100%{opacity:.14}50%{opacity:.38}}
+@media(prefers-reduced-motion:reduce){.nb-wrap-warning{animation:none;opacity:.25}}
