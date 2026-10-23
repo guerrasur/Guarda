@@ -1,4 +1,10 @@
 import { retryAfterMs, readBackupResponse, MAX_BACKUP_BYTES } from './retry.js';
+import { fingerprint, validateRelease } from './cloud-merge.js';
+const mediaError=()=>Error('Un adjunto de Drive está dañado o incompleto. Tus notas locales se conservaron.');
+const mediaBytes=data=>Uint8Array.from(atob(data),c=>c.charCodeAt(0));
+const mediaLength=data=>data.length/4*3-(data.endsWith('==')?2:data.endsWith('=')?1:0);
+function mediaBase64(bytes){let text='';for(let i=0;i<bytes.length;i+=32768)text+=String.fromCharCode(...bytes.subarray(i,i+32768));return btoa(text);}
+function validMedia(ref){return ref&&/^[\w-]{1,200}$/.test(ref.fileId)&&/^[a-f0-9]{64}$/.test(ref.hash)&&Number.isSafeInteger(ref.size)&&ref.size>=0&&ref.size<=MAX_BACKUP_BYTES;}
 export const DRIVE_SCOPE='https://www.googleapis.com/auth/drive.file';
 const driveError=(message,code,extra={})=>Object.assign(new Error(message),{code,...extra});
 export function driveFolderName(user){const username=(user?.emailAddress?.split('@')[0]||user?.permissionId||'usuario').replace(/[\\/:*?"<>|]/g,'-').slice(0,120);return 'GuardaNotes-'+username;}
@@ -69,7 +75,7 @@ export class DriveClient{
  }
  expire(){this.token=null;this.expires=0;this.identityVerified=false;}
  disconnect(){this.expire();this.user=null;this.folder=null;this.rejectAuthorization(Error('Conexión cancelada. Podés volver a conectar.'));}
- async request(path,{method='GET',body,headers={},raw=false,backup=false}={}){
+ async request(path,{method='GET',body,headers={},raw=false,backup=false,mediaSize=null}={}){
   if(!this.token||Date.now()>=this.expires){this.expire();throw driveError('La sesión de Drive venció. Tocá Reconectar para renovarla; tus notas siguen guardadas localmente.','DRIVE_AUTH');}
   if(this.retryUntil>Date.now())throw driveError('Drive pidió una pausa. Tus cambios siguen guardados localmente.','DRIVE_RETRYABLE',{retryAfterMs:this.retryUntil-Date.now()});
   const url=path.startsWith('https://')?path:API+path;
@@ -85,6 +91,12 @@ export class DriveClient{
     if(response.status===403)throw driveError('Google Drive no autorizó esta operación. Revisá el acceso de Guarda a tu cuenta.','DRIVE_PERMISSION');
     throw Error('No se pudo completar la sincronización con Drive. Se conservaron tus cambios locales.');
    }
+   if(mediaSize!==null){
+    if(Number(response.headers.get('Content-Length'))>mediaSize)throw mediaError();
+    const reader=response.body?.getReader();if(!reader)throw mediaError();let size=0;const chunks=[];
+    try{for(;;){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>mediaSize)throw mediaError();chunks.push(value);}if(size!==mediaSize)throw mediaError();const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}return bytes;}
+    catch(error){await reader.cancel().catch(()=>{});throw error;}finally{reader.releaseLock();}
+   }
    if(backup)return await readBackupResponse(response);if(raw)return response;return response.status===204?null:await response.json();
   }catch(error){if(error.name==='AbortError'||error instanceof TypeError)throw driveError(error.name==='AbortError'?'Drive tardó demasiado en responder. Se reintentará automáticamente.':'No se pudo acceder a Drive. Se reintentará al recuperar la conexión.','DRIVE_RETRYABLE');throw error;}finally{this.env.clearTimeout(timer);}
  }
@@ -93,15 +105,59 @@ export class DriveClient{
   do{const query=new URLSearchParams({q:"trashed = false and 'me' in owners and appProperties has { key='guarda' and value='sync-v1' }",fields:'nextPageToken,files(id,name,modifiedTime,appProperties,parents)',pageSize:'1000'});if(pageToken)query.set('pageToken',pageToken);const data=await this.request('files?'+query);files.push(...data.files);pageToken=data.nextPageToken||'';}while(pageToken);
   return files;
  }
- readSnapshot(id){return this.request('files/'+encodeURIComponent(id)+'?alt=media',{backup:true});}
+ get separateMedia(){return true;}
+ async prepareMedia(backup){
+  // Reuse verified local bytes even after a reload; never download unchanged media.
+  this.mediaAccount=this.user?.permissionId;this.mediaData=new Map();this.mediaFiles=null;
+  for(const a of backup.attachments){const hash=await fingerprint(a.data);this.mediaData.set(hash,a.data);}
+ }
+ checkMediaAccount(){
+  if(this.mediaAccount!==this.user?.permissionId){this.mediaAccount=this.user?.permissionId;this.mediaData=new Map();this.mediaFiles=null;}
+  this.mediaData??=new Map();
+ }
+ async readSnapshot(id){
+  const payload=await this.request('files/'+encodeURIComponent(id)+'?alt=media',{backup:true});
+  if(payload?.version!==2)return payload;
+  validateRelease({...payload,version:1});this.checkMediaAccount();let total=0;
+  for(const r of payload.records)for(const a of r.deleted?[]:r.value?.attachments||[]){
+   const ref=a.media;if(!validMedia(ref)||a.data!==undefined)throw mediaError();
+   total+=4*Math.ceil(ref.size/3);if(total>MAX_BACKUP_BYTES)throw mediaError();
+  }
+  for(const r of payload.records)for(const a of r.deleted?[]:r.value?.attachments||[]){
+   const ref=a.media;let data=this.mediaData.get(ref.hash);
+   if(data===undefined){data=mediaBase64(await this.request('files/'+encodeURIComponent(ref.fileId)+'?alt=media',{mediaSize:ref.size}));if(await fingerprint(data)!==ref.hash)throw mediaError();this.mediaData.set(ref.hash,data);}
+   if(mediaLength(data)!==ref.size)throw mediaError();a.data=data;delete a.media;
+  }
+  return {...payload,version:1,storageVersion:2};
+ }
+ async listMedia(){
+  if(this.mediaFiles)return this.mediaFiles;const files=new Map();let pageToken='';
+  do{const query=new URLSearchParams({q:"trashed = false and 'me' in owners and appProperties has { key='guarda' and value='media-v1' }",fields:'nextPageToken,files(id,appProperties,size,parents)',pageSize:'1000'});if(pageToken)query.set('pageToken',pageToken);const data=await this.request('files?'+query);for(const file of data.files){const hash=file.appProperties?.hash;if(/^[a-f0-9]{64}$/.test(hash)&&!files.has(hash))files.set(hash,file);}pageToken=data.nextPageToken||'';}while(pageToken);
+  this.mediaFiles=files;return files;
+ }
+ async externalizeMedia(payload){
+  this.checkMediaAccount();const wire=structuredClone(payload);
+  for(const r of wire.records||[])for(const a of r.deleted?[]:r.value?.attachments||[]){
+   const hash=await fingerprint(a.data),size=mediaLength(a.data),files=await this.listMedia();let file=files.get(hash);
+   if(file&&Number(file.size)!==size)throw mediaError();
+   if(!file){const content=new Blob([mediaBytes(a.data)],{type:a.type||'application/octet-stream'});const metadata={name:a.name||'Adjunto',mimeType:content.type,parents:[await this.ensureFolder()],appProperties:{guarda:'media-v1',hash}};const fileId=await this.uploadContent(metadata,content);file={id:fileId,size,parents:metadata.parents};files.set(hash,file);}
+   else await this.placeSnapshot(file);
+   a.media={fileId:file.id,hash,size};delete a.data;
+  }
+  if(wire.format==='guarda-drive-sync')wire.version=2;
+  return wire;
+ }
  async writeSnapshot(device,payload,fileId){
-  const content=new Blob([JSON.stringify(payload)],{type:'application/json'});
+  const content=new Blob([JSON.stringify(await this.externalizeMedia(payload))],{type:'application/json'});
   if(content.size>MAX_BACKUP_BYTES)throw Error('La copia de Drive supera 200 MB. Tus notas se conservan localmente. Exportá una copia y reducí los adjuntos antes de sincronizar.');
   const metadata=fileId?{name:'Guarda-'+device+'.json'}:{name:'Guarda-'+device+'.json',mimeType:'application/json',appProperties:{guarda:'sync-v1',device},parents:[await this.ensureFolder()]};
+  return this.uploadContent(metadata,content,fileId);
+ }
+ async uploadContent(metadata,content,fileId){
   const url='https://www.googleapis.com/upload/drive/v3/files'+(fileId?'/'+encodeURIComponent(fileId):'')+'?uploadType=resumable&fields=id';
-  const session=await this.request(url,{method:fileId?'PATCH':'POST',headers:{'Content-Type':'application/json','X-Upload-Content-Type':'application/json','X-Upload-Content-Length':String(content.size)},body:JSON.stringify(metadata),raw:true});
+  const session=await this.request(url,{method:fileId?'PATCH':'POST',headers:{'Content-Type':'application/json','X-Upload-Content-Type':content.type,'X-Upload-Content-Length':String(content.size)},body:JSON.stringify(metadata),raw:true});
   const location=session.headers.get('Location');if(!location)throw Error('Drive no pudo iniciar la subida.');
-  const file=await this.request(location,{method:'PUT',headers:{'Content-Type':'application/json'},body:content});return file.id;
+  const file=await this.request(location,{method:'PUT',headers:{'Content-Type':content.type},body:content});if(!file.id)throw Error('Drive no confirmó el archivo guardado.');return file.id;
  }
  async ensureFolder({refresh=false}={}){
   if(refresh)this.folder=null;
