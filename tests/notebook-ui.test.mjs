@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { parseHTML } from 'linkedom';
 import { indexedDB } from 'fake-indexeddb';
 import { GuardaStore } from '../src/storage.js';
+import { createNotebook } from '../src/notebook.js';
 import { initNotebooks } from '../src/notebook-ui.js';
 const {document,window}=parseHTML('<html><body></body></html>');
 const memory=new Map();
@@ -18,21 +19,23 @@ const restoredScroll=[];globalThis.scrollTo=position=>restoredScroll.push(positi
 const store=new GuardaStore({name:'notebook-ui',broadcast:false});
 const errors=[];const ui=initNotebooks({store,showError:error=>errors.push(error.message)});
 const $=id=>document.getElementById(id);
-function input(type,data=null,cancelable=true){const event=new window.Event('beforeinput',{bubbles:true,cancelable});Object.assign(event,{inputType:type,data});$('nb-input').dispatchEvent(event);return event;}
+function input(type,data=null,cancelable=true){if($('nb-input').readOnly)$('nb-write').onclick();const event=new window.Event('beforeinput',{bubbles:true,cancelable});Object.assign(event,{inputType:type,data});$('nb-input').dispatchEvent(event);return event;}
+const position=()=>Number($('nb-pages').textContent.split('/')[0].trim());
+async function jump(value){$('nb-pages').onclick();$('nb-jump').value=String(value);await $('nb-jump').onchange({target:$('nb-jump')});}
 const text=()=> $('nb-input').value;
 function caret(start,end=start){$('nb-input').setSelectionRange(start,end);}
 async function create(title){$('nb-title').value=title;await $('nb-create').onsubmit({preventDefault(){}});}
 test('first entry creates a named notebook on page one, preserves struck ink and reopens the last page',async()=>{
- await ui.open();assert.ok($('nb-create'));assert.equal($('nb-size').value,'25');assert.equal($('nb-capacity').value,'250');await create('Pruebas');assert.equal($('nb-jump').value,'1');
+ await ui.open();assert.ok($('nb-create'));assert.equal($('nb-size').value,'25');assert.equal($('nb-capacity').value,'400');await create('Pruebas');assert.equal(position(),1);
  caret(0);input('insertText','Hola mundo');await ui.flush();assert.equal(text(),'Hola mundo');
  caret(4);input('deleteContentBackward');await ui.flush();assert.equal(text(),'Hola mundo');assert.equal($('nb-ink').querySelector('s').textContent,'a');
- await $('nb-next').onclick();assert.equal($('nb-jump').value,'2');caret(0);input('insertText','Segunda');await ui.flush();
+ await $('nb-next').onclick();assert.equal(position(),2);caret(0);input('insertText','Segunda');await ui.flush();
  await $('nb-prev').onclick();assert.equal(text(),'Hola mundo');caret(10);input('insertText','!');await ui.flush();assert.equal(text(),'Hola mundo!');
- await $('nb-next').onclick();await $('nb-close').onclick();assert.equal(ui.isOpen,false);await ui.open();assert.equal($('nb-jump').value,'2');assert.equal(text(),'Segunda');
+ await $('nb-next').onclick();await $('nb-close').onclick();assert.equal(ui.isOpen,false);await ui.open();assert.equal(position(),2);assert.equal(text(),'Segunda');
  assert.equal((await store.allNotes()).length,1);assert.equal(errors.length,0);
 });
 test('over-capacity pastes leave the existing page intact and native noncancelable deletion becomes a strike',async()=>{
- caret(7);input('insertText','x'.repeat(250));assert.equal(text(),'Segunda');assert.match(errors.pop(),/espacio/);
+ caret(7);input('insertText','x'.repeat(400));assert.equal(text(),'Segunda');assert.match(errors.pop(),/espacio/);
  $('nb-input').value='Segund';$('nb-input').dispatchEvent(new window.Event('input',{bubbles:true}));await ui.flush();assert.equal(text(),'Segunda');assert.equal($('nb-ink').querySelector('s').textContent,'a');
  caret(0,3);$('nb-strike').onclick();await ui.flush();assert.equal(text(),'Segunda');assert.equal($('nb-ink').querySelectorAll('s').length,4);
 });
@@ -51,8 +54,29 @@ test('keyboard shrink and Safari viewport panning keep the entire dialog anchore
  await $('nb-close').onclick();assert.notEqual(document.body.style.position,'fixed');assert.equal(restoredScroll.at(-1).top,0);await ui.open();
 });
 test('jumping to any page and creating a second notebook preserves each notebook position',async()=>{
- $('nb-jump').value='25';await $('nb-jump').onchange({target:$('nb-jump')});assert.equal($('nb-next').hasAttribute('disabled'),true);caret(0);input('insertText','Última');await ui.flush();
- await $('nb-shelf').onclick();const first=document.querySelector('[data-book]').dataset.book;$('nb-size').value='50';$('nb-capacity').value='200';await create('Otro');assert.match($('nb-count').textContent,/200/);assert.equal($('nb-jump').value,'1');caret(0);input('insertText','Otro contenido');await ui.flush();await $('nb-shelf').onclick();
- await document.querySelector(`[data-book="${first}"]`).onclick();assert.equal($('nb-jump').value,'25');assert.equal(text(),'Última');
+ await jump(25);assert.equal($('nb-next').hasAttribute('disabled'),true);caret(0);input('insertText','Última');await ui.flush();
+ await $('nb-shelf').onclick();const first=document.querySelector('[data-book]').dataset.book;$('nb-size').value='50';$('nb-capacity').value='350';await create('Otro');assert.match($('nb-count').textContent,/350/);assert.equal(position(),1);caret(0);input('insertText','Otro contenido');await ui.flush();await $('nb-shelf').onclick();
+ await document.querySelector(`[data-book="${first}"]`).onclick();assert.equal(position(),25);assert.equal(text(),'Última');
  assert.equal((await store.allNotes()).length,2);await $('nb-close').onclick();store.close();
+});
+
+const waitFor=async check=>{for(let i=0;i<80;i++){if(check())return;await new Promise(resolve=>setTimeout(resolve,3));}throw Error('UI did not settle');};
+function pointer(type,x,y,extra={}){const stage=$('nb-stage'),event=new window.Event(type,{bubbles:true,cancelable:true});Object.assign(event,{pointerId:1,clientX:x,clientY:y,button:0,isPrimary:true,...extra});stage.dispatchEvent(event);}
+await test('the paper follows horizontal drags, changes pages after release, and leaves writing and vertical scrolling alone',async()=>{
+ await ui.open();await jump(2);assert.equal($('nb-input').readOnly,true);
+ pointer('pointerdown',260,100);pointer('pointermove',150,102);assert.match($('nb-sheet').style.transform,/-110px/);pointer('pointerup',150,102);await waitFor(()=>position()===3);await waitFor(()=>$('nb-next')!=null);
+ pointer('pointerdown',100,100);pointer('pointermove',190,101);pointer('pointerup',190,101);await waitFor(()=>position()===2);
+ pointer('pointerdown',100,100);pointer('pointermove',103,180);pointer('pointerup',103,180);assert.equal(position(),2);
+ pointer('pointerdown',100,100);pointer('pointermove',120,100);pointer('pointerup',120,100);assert.equal(position(),2);
+ pointer('pointerdown',100,100);pointer('pointermove',200,100);pointer('pointercancel',200,100);assert.equal($('nb-sheet').style.transform,'');
+ $('nb-write').onclick();pointer('pointerdown',260,100);pointer('pointermove',100,100);pointer('pointerup',100,100);assert.equal(position(),2);
+ $('nb-hand').onclick();await jump(1);pointer('pointerdown',100,100);pointer('pointermove',200,100);assert.match($('nb-sheet').style.transform,/18px/);pointer('pointerup',200,100);assert.equal(position(),1);
+ $('nb-pages').onclick();assert.equal(document.querySelectorAll('[data-page]').length,25);await document.querySelector('[data-page="7"]').onclick();assert.equal(position(),8);assert.equal($('nb-panel').hidden,true);
+ await $('nb-close').onclick();
+});
+await test('opening an older narrow notebook widens its lines while preserving all ink, strikes and page count',async()=>{
+ const legacy=createNotebook('Anterior',{id:'legacy-notebook',capacity:250});legacy.notebook.pages=[[{char:'A',struck:true},{char:'z',struck:false}],[]];await store.putNote(legacy);
+ await ui.open();await $('nb-shelf').onclick();await document.querySelector('[data-book="legacy-notebook"]').onclick();
+ const saved=(await store.allNotes()).find(n=>n.id==='legacy-notebook');assert.equal(saved.notebook.columns,40);assert.equal(saved.notebook.pageCount,25);assert.deepEqual(saved.notebook.pages,legacy.notebook.pages);assert.equal(text(),'Az');assert.equal($('nb-ink').querySelector('s').textContent,'A');
+ assert.match($('nb-count').textContent,/400/);await $('nb-close').onclick();store.close();
 });

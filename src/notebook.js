@@ -1,10 +1,10 @@
 // Notebook pages retain every written character, including crossed-out ink.
-export const PAGE_COLUMNS = 25;
+export const PAGE_COLUMNS = 40;
 export const PAGE_ROWS = 10;
 export const PAGE_CAPACITY = PAGE_COLUMNS * PAGE_ROWS;
 export const NOTEBOOK_PAGES = 25;
 export const NOTEBOOK_SIZES = [25, 50, 100];
-export const PAGE_SIZES = [200, 250];
+export const PAGE_SIZES = [200, 250, 350, 400];
 export const notebookFormat = book => ({columns:book.notebook.columns, rows:book.notebook.rows, capacity:book.notebook.columns*book.notebook.rows});
 export const isNotebook = note => note?.kind === 'notebook';
 export const pageText = page => page.map(ink => ink.char).join('');
@@ -21,7 +21,7 @@ export function pageSpace(page, {columns=PAGE_COLUMNS,rows=PAGE_ROWS}={}) {
 export function validateNotebook(note) {
  if (!isNotebook(note)) return;
  const book = note.notebook;
- if (book?.version !== 1 || !NOTEBOOK_SIZES.includes(book.pageCount) || book.rows !== PAGE_ROWS || ![20,25].includes(book.columns) || !Array.isArray(book.pages) || book.pages.length > book.pageCount || !book.pages.every(page => Array.isArray(page) && page.length <= book.columns*book.rows && page.every(ink => typeof ink?.char === 'string' && Array.from(ink.char).length === 1 && typeof ink.struck === 'boolean' && !/[\r\t\u0000-\u0008\u000b-\u001f]/.test(ink.char)) && pageSpace(page,book) <= book.columns*book.rows)) throw Error('El cuaderno tiene un formato inválido.');
+ if (book?.version !== 1 || !NOTEBOOK_SIZES.includes(book.pageCount) || book.rows !== PAGE_ROWS || ![20,25,35,40].includes(book.columns) || !Array.isArray(book.pages) || book.pages.length > book.pageCount || !book.pages.every(page => Array.isArray(page) && page.length <= book.columns*book.rows && page.every(ink => typeof ink?.char === 'string' && Array.from(ink.char).length === 1 && typeof ink.struck === 'boolean' && !/[\r\t\u0000-\u0008\u000b-\u001f]/.test(ink.char)) && pageSpace(page,book) <= book.columns*book.rows)) throw Error('El cuaderno tiene un formato inválido.');
 }
 export function createNotebook(title, {id=crypto.randomUUID(),pageCount=NOTEBOOK_PAGES,capacity=PAGE_CAPACITY}={}) {
  if(!NOTEBOOK_SIZES.includes(pageCount)||!PAGE_SIZES.includes(capacity))throw Error('Elegí un tamaño de cuaderno válido.');
