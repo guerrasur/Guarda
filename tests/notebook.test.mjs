@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { indexedDB } from 'fake-indexeddb';
-import { createNotebook, editPage, pageText, pageSpace, PAGE_CAPACITY, validateNotebook } from '../src/notebook.js';
+import { createNotebook, editPage, pageText, pageSpace, PAGE_CAPACITY, validateNotebook, inkPasses, strikeRuns } from '../src/notebook.js';
 import { GuardaStore } from '../src/storage.js';
 import { DraftRecovery } from '../src/draft-recovery.js';
 import { backupUnits, localRecords, materialize } from '../src/cloud-merge.js';
@@ -15,7 +15,7 @@ test('a notebook has exactly 25 ordered pages and a constant 400-character capac
 });
 test('backspace, forward delete, selections and repeated deletion retain all ink and never reclaim capacity',()=>{
  const original=ink('Hola mundo');let result=editPage(original,{start:4,deletion:'deleteContentBackward'});assert.equal(pageText(result.page),'Hola mundo');assert.equal(result.page[3].struck,true);assert.equal(result.caret,3);
- result=editPage(result.page,{start:4,deletion:'deleteContentBackward'});assert.equal(result.page[2].struck,true);
+ result=editPage(result.page,{start:4,deletion:'deleteContentBackward'});assert.equal(result.page[3].passes,2);result=editPage(result.page,{start:4,deletion:'deleteContentBackward'});assert.equal(result.page[2].struck,true);
  result=editPage(result.page,{start:5,end:10,deletion:'deleteByCut'});assert.ok(result.page.slice(5).every(i=>i.struck));assert.equal(pageSpace(result.page),10);
  const full=ink('x'.repeat(400));const crossed=editPage(full,{start:0,end:400,deletion:'deleteContentForward'}).page;assert.equal(pageSpace(crossed),400);assert.throws(()=>editPage(crossed,{start:0,text:'a'}),/espacio/);assert.equal(original[3].struck,false);
 });
@@ -54,4 +54,16 @@ test('all inserted ink appends after the entire sentence even after crossing out
  const original=ink('Inicio medio final');const crossed=editPage(original,{start:7,end:12,deletion:'deleteContentBackward'}).page;
  for(const operation of [{start:0,text:'!'},{start:9,text:'?'},{start:7,end:12,text:'otra'}]){const result=editPage(crossed,operation);assert.equal(pageText(result.page),pageText(original)+operation.text);assert.deepEqual(result.page.slice(0,original.length).map(c=>c.char),original.map(c=>c.char));assert.equal(result.caret,result.page.length);}
  const last=editPage(original,{start:original.length,deletion:'deleteContentBackward'});const next=editPage(last.page,{start:last.caret,text:'x'});assert.equal(pageText(next.page),'Inicio medio finalx');assert.equal(next.page[original.length-1].struck,true);
+});
+
+test('successive deletions increase the ink without deleting text or recovering space, and legacy strikes count as one pass',()=>{
+ const original=ink('Mañana tengo que llamar.');const first=editPage(original,{start:0,end:original.length,deletion:'deleteByCut'});assert.ok(first.page.every(c=>inkPasses(c)===1));
+ const second=editPage(first.page,{start:0,end:first.page.length,deletion:'deleteByCut'});assert.ok(second.page.every(c=>inkPasses(c)===2));assert.equal(pageText(second.page),pageText(original));assert.equal(pageSpace(second.page),pageSpace(original));
+ const again=editPage(second.page,{start:0,end:second.page.length,deletion:'deleteByCut'});assert.deepEqual(again.page,second.page);assert.equal(inkPasses({char:'a',struck:true}),1);
+ validateNotebook({...createNotebook('Tachado'),notebook:{version:1,pageCount:25,columns:40,rows:10,pages:[second.page]}});
+});
+test('stroke runs form continuous curves without joining different rows, clean text or different ink levels',()=>{
+ const page=ink('a'.repeat(43));for(const c of page)c.struck=true;page[1].passes=2;page[3].struck=false;
+ assert.deepEqual(strikeRuns(page).map(r=>[r.row,r.start,r.end,r.passes]),[[0,0,1,1],[0,1,2,2],[0,2,3,1],[0,4,40,1],[1,0,3,1]]);
+ const breaks=ink('Hola\nmundo');for(const c of breaks)c.struck=true;assert.deepEqual(strikeRuns(breaks).map(r=>[r.row,r.start,r.end]),[[0,0,4],[1,0,5]]);
 });

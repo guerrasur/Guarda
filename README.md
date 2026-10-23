@@ -120,7 +120,7 @@ Referencias: https://support.google.com/keep/answer/10017039 y https://support.g
 
 La versión 0.7.9 incorpora límites sin contadores en D1, pausas de reintento, mantenimiento y pruebas en workerd. Ver [límites, auditoría y operación](docs/security.md).
 
-### Modo cuaderno (v0.9.0)
+### Modo cuaderno (v0.9.1)
 
 Desde el menú izquierdo, **Modo cuaderno** abre el último cuaderno y su última
 hoja visitada. La estantería permite crear otros con título y 25, 50 o 100 hojas.
@@ -149,3 +149,21 @@ Se conserva IndexedDB, recuperación local inmediata, exportación/importación
 y sincronización opcional de Drive. Las descargas y actualizaciones de la app
 esperan a cerrar el cuaderno; las subidas pueden realizarse tras la pausa habitual.
 Las pruebas automatizadas no sustituyen una comprobación en un iPhone físico.
+
+El papel amarillo ocupa toda la altura disponible y distribuye sus diez renglones
+hasta el borde inferior. La barra flota sobre la hoja. Al aparecer el teclado,
+el área visible se recalcula; en pantallas muy pequeñas, la hoja conserva
+legibilidad y se desplaza dentro del cuaderno. El entorno, los paneles y los
+controles siguen el modo oscuro de Guarda, mientras el papel permanece amarillo.
+
+Los tachados son trazos ondulados continuos por renglón. Una segunda pasada
+cubre la tinta con trazos más gruesos, sin eliminar caracteres ni liberar espacio.
+Las selecciones se mantienen después de tachar para permitir esa segunda pasada.
+Los tachados de versiones anteriores equivalen a una primera pasada.
+
+La letra de imprenta manuscrita **Guarda Hand** es una adaptación de ancho fijo
+de Patrick Hand, de Patrick Wagesreiter, bajo SIL Open Font License 1.1. La fuente
+y su licencia se incluyen en el caché sin conexión, sin proveedores externos
+en tiempo de ejecución. El generador opcional está en `scripts/build_notebook_font.py`;
+la fuente original está en https://github.com/google/fonts/tree/main/ofl/patrickhand
+y su SHA256 es `0f173b3e6cb6d1af25babf7f0057c5ac4ee11f9992b0469bb817e967ef4ad0fc`.

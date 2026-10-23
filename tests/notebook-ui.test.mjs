@@ -80,3 +80,14 @@ await test('opening an older narrow notebook widens its lines while preserving a
  const saved=(await store.allNotes()).find(n=>n.id==='legacy-notebook');assert.equal(saved.notebook.columns,40);assert.equal(saved.notebook.pageCount,25);assert.deepEqual(saved.notebook.pages,legacy.notebook.pages);assert.equal(text(),'Az');assert.equal($('nb-ink').querySelector('s').textContent,'A');
  assert.match($('nb-count').textContent,/400/);await $('nb-close').onclick();store.close();
 });
+
+await test('the sheet fills the available stage and grows its line spacing instead of stopping halfway down',async()=>{
+ await ui.open();const height=parseFloat($('nb-sheet').style.height);assert.ok(height>=590);assert.ok(parseFloat($('nb-writing-space').style.getPropertyValue('--ink-leading'))>=50);
+ viewport.height=350;viewport.offsetTop=100;viewport.dispatchEvent(new Event('resize'));assert.equal(document.querySelector('.notebook-layer').style.getPropertyValue('--notebook-height'),'350px');assert.ok(parseFloat($('nb-sheet').style.height)>=180);
+ viewport.height=800;viewport.offsetTop=0;viewport.dispatchEvent(new Event('resize'));await $('nb-close').onclick();
+});
+await test('selected text keeps its selection for a second irregular stroke without moving or deleting its letters',async()=>{
+ await ui.open();$('nb-write').onclick();caret(0,2);$('nb-strike').onclick();await ui.flush();const first=text();assert.equal($('nb-input').selectionStart,0);assert.equal($('nb-input').selectionEnd,2);
+ assert.ok($('nb-strokes').querySelector('path'));$('nb-strike').onclick();await ui.flush();assert.equal(text(),first);assert.ok($('nb-strokes').querySelector('.nb-stroke-heavy'));
+ assert.ok($('nb-ink').querySelector('s[data-passes="2"]'));await $('nb-close').onclick();store.close();
+});

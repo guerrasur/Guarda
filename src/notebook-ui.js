@@ -1,4 +1,4 @@
-import { createNotebook, editPage, isNotebook, pageText, pageSpace, notebookFormat } from './notebook.js';
+import { createNotebook, editPage, isNotebook, pageText, pageSpace, notebookFormat, strikeRuns, inkPasses } from './notebook.js';
 import { DraftRecovery } from './draft-recovery.js';
 import { icon } from './icons.js';
 
@@ -40,7 +40,7 @@ export function initNotebooks({store, showError, onClose, onPending}) {
   const {columns,rows,capacity}=format(),used=pageSpace(page(),format());
   const marker=$('nb-write-caret');
   marker.style.left=`min(${used===capacity?columns:used%columns}ch, calc(100% - 2px))`;
-  marker.style.top=`${Math.min(rows-1,Math.floor(used/columns))*1.5}em`;
+  marker.style.top=`calc(${Math.min(rows-1,Math.floor(used/columns))} * var(--ink-leading, 1.5em) + var(--cursor-inset, 0px))`;
   const range=selection(),taching=range.start!==page().length||range.end!==range.start;
   paper.dataset.taching=String(taching);
   $('nb-cursor-status').textContent=taching?'Rojo: tachado · Verde: seguís acá':'Verde: seguís escribiendo acá';
@@ -90,14 +90,31 @@ export function initNotebooks({store, showError, onClose, onPending}) {
   const r=space.getBoundingClientRect();
   const paper=$('nb-paper'),fontSize=parseFloat(globalThis.getComputedStyle?.(paper).fontSize)||12;
   const widthPerEm=globalThis.getComputedStyle?paper.getBoundingClientRect().width/fontSize:format().columns*.6021;
-  const size=Math.min(24,(r.width-4)/widthPerEm,Math.max(12,(r.height-12)/(format().rows*1.5)));
-  space.style.setProperty('--ink-size',`${size}px`);
+  const size=Math.max(1,Math.min(24,(r.width-4)/widthPerEm));
+  const stage=$('nb-stage'),sheet=$('nb-sheet');
+  if(stage&&sheet){const height=stage.clientHeight||stage.getBoundingClientRect().height;sheet.style.height=`${Math.max(format().rows*size*1.5+168,height-4)}px`;}
+  const leading=Math.max(size*1.5,space.getBoundingClientRect().height/format().rows);
+  space.style.setProperty('--ink-size',`${size}px`);space.style.setProperty('--ink-leading',`${leading}px`);space.style.setProperty('--cursor-inset',`${Math.max(0,(leading-size*1.3)/2)}px`);
+  trackCaret();
+ }
+ function paintStrokes() {
+  const overlay=$('nb-strokes');if(!overlay)return;
+  const {columns,rows}=format();overlay.setAttribute('viewBox',`0 0 ${columns*20} ${rows*30}`);
+  const paths=[];
+  for(const run of strikeRuns(page(),format())){
+   const x=run.start*20+1,w=(run.end-run.start)*20-2,y=run.row*30+15;
+   const curve=(offset,reverse=false)=>reverse?`M${x+w} ${y+offset} C${x+w*.65} ${y+offset-3} ${x+w*.35} ${y+offset+3} ${x} ${y+offset-1}`:`M${x} ${y+offset} C${x+w*.28} ${y+offset-3} ${x+w*.62} ${y+offset+4} ${x+w} ${y+offset-1}`;
+   if(run.passes===1)paths.push(`<path d="${curve(0)}" class="nb-stroke"/>`);
+   else for(const [index,offset] of [-3,0,3].entries())paths.push(`<path d="${curve(offset,index%2===1)}" class="nb-stroke nb-stroke-heavy"/>`);
+  }
+  overlay.innerHTML=paths.join('');
  }
  function paint(caret=null) {
   const ink=page();$('nb-input').value=pageText(ink);
-  $('nb-ink').innerHTML=ink.map(c=>c.struck?`<s>${esc(c.char)}</s>`:esc(c.char)).join('');
+  $('nb-ink').innerHTML=ink.map(c=>c.struck?`<s data-passes="${inkPasses(c)}">${esc(c.char)}</s>`:esc(c.char)).join('');
   $('nb-count').textContent=`${pageSpace(ink,format())} / ${format().capacity}`;
   $('nb-full').hidden=pageSpace(ink,format())<format().capacity;
+  paintStrokes();
   if(caret!==null){const offset=ink.slice(0,caret).map(c=>c.char).join('').length;$('nb-input').setSelectionRange(offset,offset);}
   $('nb-input').scrollTop=0;$('nb-input').scrollLeft=0;trackCaret();
  }
@@ -152,8 +169,9 @@ export function initNotebooks({store, showError, onClose, onPending}) {
   stage.addEventListener('pointercancel',reset);
  }
  function render() {
-  shell(`<header class="notebook-top"><button class="icon-button" id="nb-close" aria-label="Volver a Guarda" title="Volver">${icon('back')}</button><div class="notebook-heading"><strong>${esc(book.title)}</strong></div><span id="nb-status" class="nb-save-indicator" role="status" aria-label="Guardado local">${icon('check')}</span><button class="icon-button" id="nb-shelf" aria-label="Cuadernos" title="Cuadernos">${icon('book')}</button><button class="icon-button" id="nb-info" aria-label="Ayuda del cuaderno" title="Ayuda">${icon('info')}</button></header><div class="nb-stage" id="nb-stage"><article class="nb-sheet" id="nb-sheet" aria-label="Hoja ${pageIndex+1}"><div class="notebook-page-caption"><span>${String(pageIndex+1).padStart(2,'0')}</span><span id="nb-count"></span></div><div class="notebook-writing-space" id="nb-writing-space" style="--nb-columns:${format().columns}ch;--nb-lines:${format().rows*1.5}em"><div class="notebook-writing" id="nb-paper"><pre id="nb-ink" class="notebook-ink" aria-hidden="true"></pre><textarea id="nb-input" class="notebook-ink" aria-label="Escribir en la hoja ${pageIndex+1}. Borrar tacha el texto sin eliminarlo." aria-describedby="nb-help" wrap="soft" spellcheck="false" autocorrect="off" autocapitalize="sentences"></textarea><span id="nb-write-caret" class="notebook-write-caret" aria-hidden="true"></span></div></div><div class="notebook-full" id="nb-full" role="status" hidden>Hoja completa</div><div class="nb-page-progress" aria-hidden="true"><span style="width:${(pageIndex+1)/book.notebook.pageCount*100}%"></span></div></article></div><footer class="notebook-footer"><nav class="nb-dock" aria-label="Herramientas del cuaderno"><button class="icon-button" id="nb-prev" aria-label="Hoja anterior" ${pageIndex===0?'disabled':''}>${icon('back')}</button><button class="nb-page-button" id="nb-pages" aria-label="Ver todas las hojas" title="Ver hojas">${pageIndex+1}<span> / ${book.notebook.pageCount}</span></button><button class="icon-button" id="nb-next" aria-label="Hoja siguiente" ${pageIndex===book.notebook.pageCount-1?'disabled':''}>${icon('chevron')}</button><span class="nb-dock-divider"></span><button class="icon-button" id="nb-hand" aria-label="Leer y deslizar hojas" title="Leer y deslizar">${icon('hand')}</button><button class="icon-button" id="nb-write" aria-label="Escribir al final" title="Escribir">${icon('edit')}</button><button class="icon-button" id="nb-strike" aria-label="Tachar texto" title="Tachar">${icon('strike')}</button></nav><p id="nb-cursor-status" class="nb-sr-only" role="status"></p><p id="nb-help" class="nb-sr-only">Deslizá la hoja para avanzar. El lápiz abre el teclado. Lo nuevo se agrega al final. Seleccioná texto y usá Tachar para conservarlo tachado.</p></footer><div id="nb-panel" class="nb-panel" hidden></div>`);
+  shell(`<header class="notebook-top"><button class="icon-button" id="nb-close" aria-label="Volver a Guarda" title="Volver">${icon('back')}</button><div class="notebook-heading"><strong>${esc(book.title)}</strong></div><span id="nb-status" class="nb-save-indicator" role="status" aria-label="Guardado local">${icon('check')}</span><button class="icon-button" id="nb-shelf" aria-label="Cuadernos" title="Cuadernos">${icon('book')}</button><button class="icon-button" id="nb-info" aria-label="Ayuda del cuaderno" title="Ayuda">${icon('info')}</button></header><div class="nb-stage" id="nb-stage"><article class="nb-sheet" id="nb-sheet" aria-label="Hoja ${pageIndex+1}"><div class="notebook-page-caption"><span>${String(pageIndex+1).padStart(2,'0')}</span><span id="nb-count"></span></div><div class="notebook-writing-space" id="nb-writing-space" style="--nb-columns:${format().columns}ch;--nb-rows:${format().rows}"><div class="notebook-writing" id="nb-paper"><pre id="nb-ink" class="notebook-ink" aria-hidden="true"></pre><textarea id="nb-input" class="notebook-ink" aria-label="Escribir en la hoja ${pageIndex+1}. Borrar tacha el texto sin eliminarlo." aria-describedby="nb-help" wrap="soft" spellcheck="false" autocorrect="off" autocapitalize="sentences"></textarea><svg id="nb-strokes" class="nb-strokes" preserveAspectRatio="none" aria-hidden="true"></svg><span id="nb-write-caret" class="notebook-write-caret" aria-hidden="true"></span></div></div><div class="notebook-full" id="nb-full" role="status" hidden>Hoja completa</div><div class="nb-page-progress" aria-hidden="true"><span style="width:${(pageIndex+1)/book.notebook.pageCount*100}%"></span></div></article></div><footer class="notebook-footer"><nav class="nb-dock" aria-label="Herramientas del cuaderno"><button class="icon-button" id="nb-prev" aria-label="Hoja anterior" ${pageIndex===0?'disabled':''}>${icon('back')}</button><button class="nb-page-button" id="nb-pages" aria-label="Ver todas las hojas" title="Ver hojas">${pageIndex+1}<span> / ${book.notebook.pageCount}</span></button><button class="icon-button" id="nb-next" aria-label="Hoja siguiente" ${pageIndex===book.notebook.pageCount-1?'disabled':''}>${icon('chevron')}</button><span class="nb-dock-divider"></span><button class="icon-button" id="nb-hand" aria-label="Leer y deslizar hojas" title="Leer y deslizar">${icon('hand')}</button><button class="icon-button" id="nb-write" aria-label="Escribir al final" title="Escribir">${icon('edit')}</button><button class="icon-button" id="nb-strike" aria-label="Tachar texto" title="Tachar">${icon('strike')}</button></nav><p id="nb-cursor-status" class="nb-sr-only" role="status"></p><p id="nb-help" class="nb-sr-only">Deslizá la hoja para avanzar. El lápiz abre el teclado. Lo nuevo se agrega al final. Seleccioná texto y usá Tachar para conservarlo tachado.</p></footer><div id="nb-panel" class="nb-panel" hidden></div>`);
   const input=$('nb-input');paint(page().length);setTool(interaction);syncViewport();bindSwipe();
+  document.fonts?.load('16px "Guarda Hand"').then(()=>{if(layer.open&&book)syncViewport();}).catch(()=>{});
   if(typeof ResizeObserver!=='undefined'){observer=new ResizeObserver(fit);observer.observe($('nb-writing-space'));}
   $('nb-shelf').onclick=()=>shelf().catch(report);
   $('nb-prev').onclick=()=>turn(pageIndex-1).catch(report);$('nb-next').onclick=()=>turn(pageIndex+1).catch(report);
@@ -161,7 +179,7 @@ export function initNotebooks({store, showError, onClose, onPending}) {
   $('nb-info').onclick=()=>{setTool('read');panel(`<div class="nb-panel-heading"><strong>Tu cuaderno</strong><button class="icon-button" id="nb-panel-close" aria-label="Cerrar panel">${icon('close')}</button></div><div class="nb-quick-help"><p>${icon('hand')}Deslizá para pasar de hoja.</p><p>${icon('edit')}Escribí siempre al final.</p><p>${icon('strike')}Lo tachado conserva su lugar.</p><small>${format().columns} letras por renglón · ${format().capacity} caracteres por hoja</small></div>`);$('nb-panel-close').onclick=closePanel;};
   $('nb-hand').onclick=()=>setTool('read');$('nb-write').onclick=()=>setTool('write',true);
   $('nb-strike').onpointerdown=event=>event.preventDefault();
-  $('nb-strike').onclick=()=>{const range=selection();if(range.start!==range.end){change({...range,deletion:'deleteContentBackward'});setTool('strike',true);}else setTool('strike',true);};
+  $('nb-strike').onclick=()=>{const range=selection();if(range.start!==range.end){change({...range,deletion:'deleteContentBackward'});setTool('strike',true);const text=pageText(page());input.setSelectionRange(Array.from(text).slice(0,range.start).join('').length,Array.from(text).slice(0,range.end).join('').length);trackCaret();}else setTool('strike',true);};
   input.addEventListener('beforeinput',event=>{
    if(interaction==='read'){event.preventDefault();return;}if(composition||event.isComposing||!event.cancelable)return;
    if(event.inputType.startsWith('history')){event.preventDefault();return;}
