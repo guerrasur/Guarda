@@ -35,8 +35,19 @@ async function encodeBlob(blob) {
   for (let i = 0; i < bytes.length; i += 32768) result += String.fromCharCode(...bytes.subarray(i, i + 32768));
   return btoa(result);
 }
+function validBase64(value) {
+  if (typeof value !== 'string' || value.length % 4 !== 0) return false;
+  const end = value.length - (value.endsWith('==') ? 2 : value.endsWith('=') ? 1 : 0);
+  // Repeated regex groups can exhaust the engine's stack on large recordings.
+  // Scan the alphabet without recursion or an argument per byte.
+  for (let i = 0; i < end; i++) {
+    const c = value.charCodeAt(i);
+    if (!((c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57) || c === 43 || c === 47)) return false;
+  }
+  return true;
+}
 function decodeBlob(base64, type) {
-  assert(typeof base64 === 'string' && /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(base64), 'Un archivo de la copia está dañado.');
+  assert(validBase64(base64), 'Un archivo de la copia está dañado.');
   const binary = atob(base64);
   return new Blob([Uint8Array.from(binary, char => char.charCodeAt(0))], { type });
 }

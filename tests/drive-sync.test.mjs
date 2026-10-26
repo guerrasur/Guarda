@@ -129,3 +129,12 @@ test('different local text while preparing sync aborts before any network transm
  a.client.listSnapshots=async()=>{requests++;return [];};a.store.reserveSyncHeads=async(...args)=>{await a.store.putNote(note('before','Más texto'));return reserve(...args);};
  await assert.rejects(a.sync.sync(),e=>e.cause?.code==='SYNC_LOCAL_CHANGED');assert.equal(requests,0);assert.equal(f.uploads,0);assert.equal((await a.store.allNotes())[0].body,'Más texto');
 });
+
+test('multi-megabyte recordings synchronize to a second device with exact bytes', async t => {
+ const f=await fixture(t),a=await f.device(),b=await f.device();
+ const bytes=new Uint8Array(8*1024*1024).fill(42),n=note('large-recording');n.attachments=['large-audio'];
+ await a.store.attachToNote(n,{id:'large-audio',noteId:n.id,type:'audio/mp4',name:'Grabación',blob:new Blob([bytes],{type:'audio/mp4'})});
+ await a.sync.sync();await b.sync.sync();
+ const restored=await b.store.getAttachment('large-audio');assert.deepEqual(new Uint8Array(await restored.blob.arrayBuffer()),bytes);
+ assert.equal((await b.store.allNotes())[0].id,n.id);
+});

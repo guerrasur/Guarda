@@ -125,3 +125,18 @@ test('bulk saves commit once and failed writes roll back every selected note',as
   await assert.rejects(store.putNotes([{...a,pinned:false},invalid]));
   assert.ok((await store.allNotes()).every(note=>note.pinned));assert.equal(await store.getSetting('local-revision'),revision+1);assert.equal(events.length,1);
 });
+
+test('large attachments validate without regex stack overflow and malformed base64 stays rejected', async t => {
+  const store = await open(t);
+  const data = Buffer.alloc(8 * 1024 * 1024, 42).toString('base64');
+  const backup = { format: 'guarda-backup', version: 1, notes: [note('large', { attachments: ['audio'] })], labels: [], settings: [], attachments: [{ id: 'audio', noteId: 'large', name: 'Voz', type: 'audio/mp4', data }] };
+  const validated = await store.validateBackup(backup);
+  assert.deepEqual(new Uint8Array(await validated.attachments[0].blob.arrayBuffer()), new Uint8Array(Buffer.from(data, 'base64')));
+  for (const malformed of ['A', 'AAA', '====', 'A===', 'AA=A', 'AA==AAAA', 'AA\n=', '!!!!', data.slice(0, -4) + '!===']) {
+    await assert.rejects(store.validateBackup({ ...backup, attachments: [{ ...backup.attachments[0], data: malformed }] }), /dañado/);
+  }
+  for (const valid of ['', 'AA==', 'AAA=', 'AAAA']) {
+    const result = await store.validateBackup({ ...backup, attachments: [{ ...backup.attachments[0], data: valid }] });
+    assert.equal(result.attachments[0].blob.size, Buffer.from(valid, 'base64').length);
+  }
+});
