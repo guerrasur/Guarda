@@ -58,3 +58,17 @@ En un iPhone, probar: primera autorización; cierre completo y reapertura; acces
 - https://developers.google.com/identity/protocols/oauth2/web-server
 - https://developers.google.com/identity/protocols/oauth2
 - https://developers.google.com/workspace/drive/api/guides/limits
+
+
+## Callback de Google (0.9.3)
+
+Se acepta el parámetro de respuesta `iss` de Google y, cuando aparece, se exige
+exactamente `https://accounts.google.com` antes de intercambiar el código. Se
+conserva la compatibilidad con respuestas anteriores sin `iss`, la cookie temporal,
+PKCE y el rechazo de parámetros desconocidos o repetidos. Corrige el rechazo
+`BAD_REQUEST` que provocaba ese parámetro al regresar de Google.
+
+Requiere volver a desplegar el Worker desde este commit; actualizar Pages por sí
+solo no cambia el callback. No requiere migraciones, cambios de variables ni
+regenerar secretos. Pruebas con Google simulado y workerd; la autorización real
+debe comprobarse después del despliegue.

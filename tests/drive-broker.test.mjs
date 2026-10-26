@@ -172,3 +172,30 @@ test('Google token exchange and identity lookup use edge-compatible manual redir
   assert.ok(f.calls.length >= 2);
   for (const call of f.calls) assert.equal(call.options.redirect, 'manual');
 });
+
+
+test('Google issuer callback completes; invalid, duplicate and unknown parameters fail closed', async t => {
+  const f = await brokerFixture(t);
+  for (const [extra, expected] of [
+    ['&iss=https%3A%2F%2Faccounts.google.com&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.file&authuser=0&prompt=consent', 'complete'],
+    ['&iss=https%3A%2F%2Fattacker.test', 'failed'],
+    ['&iss=', 'failed'],
+    ['&iss=https%3A%2F%2Faccounts.google.com&iss=https%3A%2F%2Faccounts.google.com', 'invalid'],
+    ['&unexpected=1', 'invalid'],
+  ]) {
+    const flow = await f.begin(), start = await f.start(flow);
+    const cookie = start.headers.get('Set-Cookie').split(';')[0], count = f.calls.length;
+    const response = await f.callback(flow, cookie, extra);
+    if (expected === 'complete') {
+      assert.match(await response.text(), /Conexión lista/);
+      assert.ok((await (await f.poll(flow)).json()).session);
+    } else {
+      assert.equal(f.calls.length, count, 'rejected callbacks never exchange a code');
+      if (expected === 'invalid') assert.equal(response.status, 400);
+      else {
+        assert.match(await response.text(), /Google necesita una nueva autorización/);
+        assert.equal((await (await f.poll(flow)).json()).error.code, 'DRIVE_AUTH');
+      }
+    }
+  }
+});

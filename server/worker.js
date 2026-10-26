@@ -187,6 +187,9 @@ async function callback(request, url, env, config, now, fetcher) {
   if (!row) return callbackPage(false, 'Esta autorización ya fue procesada. Volvé a Guarda para comprobar la conexión.');
   let success = false, payload, explanation = '', stage = 'TOKEN';
   try {
+    // Google may identify its authorization server per RFC 9207. Keep older
+    // responses compatible, but reject a supplied issuer before token exchange.
+    if (url.searchParams.has('iss') && url.searchParams.get('iss') !== 'https://accounts.google.com') fail(401, 'DRIVE_AUTH');
     if (url.searchParams.has('error')) fail(401, 'DRIVE_AUTH');
     const code = url.searchParams.get('code'); if (!code || code.length > 4096) fail(401, 'DRIVE_AUTH');
     const tokens = await exchange({ grant_type: 'authorization_code', code, redirect_uri: config.callback, code_verifier: pending.verifier }, env, fetcher);
@@ -297,7 +300,7 @@ export function createWorker({ fetcher = (...args) => fetch(...args), clock = Da
         if (request.method !== method && request.method !== 'OPTIONS') throw failure(405, 'METHOD', 'Método no permitido.');
         const navigation = ['launch', 'continue', 'callback'].includes(operation);
         if ((!navigation || request.method === 'OPTIONS') && origin !== config.app) throw failure(403, 'ORIGIN', 'Origen no autorizado.');
-        const params = { launch: ['state', 'ticket'], continue: ['state'], callback: ['state', 'code', 'error', 'error_description', 'scope', 'authuser', 'prompt', 'hd'] }[operation] || [];
+        const params = { launch: ['state', 'ticket'], continue: ['state'], callback: ['state', 'code', 'iss', 'error', 'error_description', 'scope', 'authuser', 'prompt', 'hd'] }[operation] || [];
         if (request.url.length > 8192 || (request.headers.get('Cookie') || '').length > 8192 || [...url.searchParams.keys()].some(key => !params.includes(key) || url.searchParams.getAll(key).length !== 1)) throw failure(400, 'BAD_REQUEST', 'Solicitud inválida.');
         if (Number(request.headers.get('Content-Length')) > 2048) throw failure(413, 'BAD_REQUEST', 'Solicitud demasiado grande.');
         if (!['POST', 'OPTIONS'].includes(request.method) && request.body) throw failure(400, 'BAD_REQUEST', 'Solicitud inválida.');
@@ -329,7 +332,7 @@ export function createWorker({ fetcher = (...args) => fetch(...args), clock = Da
           if (origin !== config.app) throw failure(403, 'ORIGIN', 'Origen no autorizado.');
           if (request.method === 'OPTIONS') response = new Response(null, { status: 204 });
           else if (url.pathname === '/oauth/start' && request.method === 'POST') response = await start(request, env, config, now);
-          else if (url.pathname === '/v1/config' && request.method === 'GET') response = json({ clientId: env.GOOGLE_CLIENT_ID, persistent: true, version: '0.7.9' });
+          else if (url.pathname === '/v1/config' && request.method === 'GET') response = json({ clientId: env.GOOGLE_CLIENT_ID, persistent: true, version: '0.9.3' });
           else if (url.pathname === '/v1/authorizations' && request.method === 'POST') response = await begin(request, env, config, now);
           else if (/^\/v1\/authorizations\/[\w-]{43}$/.test(url.pathname) && request.method === 'GET') response = await poll(url.pathname.split('/').at(-1), request, env, now);
           else if (url.pathname === '/v1/access-token' && request.method === 'POST') response = await access(request, env, now, fetcher);

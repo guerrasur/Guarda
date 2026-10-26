@@ -40,7 +40,7 @@ test('workerd + real local D1: OAuth, replay, isolation, refresh lease, redirect
   const cookie = launched.headers.get('Set-Cookie').split(';')[0];
   const next = await req('/oauth/continue?state=' + flow.id, { headers: { Cookie: cookie } });
   assert.equal(new URL(next.headers.get('Location')).hostname, 'accounts.google.com');
-  const cb = '/oauth/callback?state=' + flow.id + '&code=local-code';
+  const cb = '/oauth/callback?state=' + flow.id + '&code=local-code&iss=https%3A%2F%2Faccounts.google.com';
   await req(cb); assert.equal(calls, 0);
   assert.match(await (await req(cb, { headers: { Cookie: cookie } })).text(), /Conexión lista/);
   assert.equal(calls, 2);
