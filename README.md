@@ -174,3 +174,8 @@ renglón, queda un guion fijo en ese margen. Las anotaciones no ocupan posicione
 no se copian como texto y nunca desplazan letras o tachados. Los saltos manuales
 y las palabras que terminan justo en el margen no reciben un guion fijo. En modo
 lectura/tachado no titila el aviso; movimiento reducido lo muestra estático.
+
+### Orden de notas (v0.9.5)
+El selector sobre las notas permite ordenar por Modificación, Apertura o Creación. La flecha ↓ muestra las más recientes primero y ↑ las más antiguas. Las notas fijadas conservan su sección. El modo Manual conserva el orden previo; arrastrar una nota vuelve a ese modo. La selección y el sentido se recuerdan.
+
+La apertura se registra desde esta versión en este navegador, por separado del contenido: abrir sin editar no cambia la fecha de modificación ni provoca una subida a Drive. Las notas todavía no abiertas aparecen al final en ambos sentidos.

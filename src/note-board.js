@@ -24,3 +24,11 @@ export function renderNoteGroups(area, groups, {keyOf, renderCard}) {
  for(const {grid,wanted} of layouts)for(const child of [...grid.children])if(!wanted.has(child.dataset.note))child.remove();
  const ids=new Set(groups.map(group=>group.id));for(const section of [...area.children])if(!ids.has(section.dataset.group))section.remove();
 }
+
+// Unopened notes stay after opened notes in either direction.
+export function compareNotes(a,b,mode='manual',direction='desc',opened={}) {
+ const timestamp=n=>{const value=mode==='opened'?opened?.[n.id]:mode==='created'?n.createdAt:mode==='modified'?n.updatedAt:n.order??n.createdAt;return Number.isFinite(Number(value))?Number(value):0;};
+ const av=timestamp(a),bv=timestamp(b);
+ if(mode==='opened'&&!!av!==!!bv)return av?-1:1;
+ return (direction==='asc'?av-bv:bv-av)||String(a.id).localeCompare(String(b.id));
+}

@@ -286,3 +286,20 @@ await test('labels can be created and toggled inside a note without dismissing t
  assert.doesNotMatch($('editor-labels').textContent,/Rodaje nuevo/);
  await $('editor-close').onclick();
 });
+
+await test('sort controls persist direction and opening never edits a note',async()=>{
+ document.querySelector('[data-route=notes]').dispatchEvent(new window.Event('click',{bubbles:true}));
+ await create('Orden A');await pause(15);await create('Orden B');
+ const all=await store.allNotes(),a=all.find(n=>n.title==='Orden A'),b=all.find(n=>n.title==='Orden B');
+ $('note-sort').value='created';await $('note-sort').onchange({target:$('note-sort')});
+ const ids=()=>[...document.querySelectorAll('[data-note]')].map(n=>n.dataset.note);
+ assert.ok(ids().indexOf(b.id)<ids().indexOf(a.id));
+ await $('note-sort-direction').onclick();assert.ok(ids().indexOf(a.id)<ids().indexOf(b.id));
+ assert.equal(await store.getSetting('noteSort'),'created');assert.equal(await store.getSetting('noteSortDirection'),'asc');
+ document.querySelector(`[data-note="${a.id}"]`).dispatchEvent(new window.Event('click',{bubbles:true}));await until(()=>!$('editor-layer').hidden);
+ await $('editor-close').onclick();await until(()=>$('editor-layer').hidden);
+ assert.equal((await store.allNotes()).find(n=>n.id===a.id).updatedAt,a.updatedAt);
+ assert.ok(JSON.parse(localStorage.getItem('guarda-note-opened-at'))[a.id]);
+ $('note-sort').value='opened';await $('note-sort').onchange({target:$('note-sort')});await $('note-sort-direction').onclick();
+ assert.ok(ids().indexOf(a.id)<ids().indexOf(b.id));
+});
