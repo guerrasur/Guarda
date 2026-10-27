@@ -66,3 +66,14 @@ test('finished closing frames can still be cancelled on a save failure or next o
  element.calls[0].animation.finish();await closing;cancelMotion(element);
  assert.equal(element.calls[0].animation.cancelled,true);
 });
+
+test('board measures every card before starting animation writes',async()=>{
+ const events=[],cards=Array.from({length:8},(_,i)=>{
+  const c=card(String(i));c.getBoundingClientRect=()=>{events.push('read');return rect(i*10,10);};
+  const original=c.animate;c.animate=function(...args){events.push('write');return original.apply(this,args);};return c;
+ });
+ animateBoard({querySelectorAll:()=>cards},new Map(),fixture());
+ assert.equal(events.filter(e=>e==='read').length,cards.length);
+ assert.ok(events.lastIndexOf('read')<events.indexOf('write'),'animation must not force layout between card measurements');
+ for(const c of cards)cancelMotion(c);await Promise.resolve();
+});

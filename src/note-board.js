@@ -10,13 +10,15 @@ export function renderNoteGroups(area, groups, {keyOf, renderCard}) {
   if(area.children[index]!==section)area.insertBefore(section,area.children[index]||null);
   const heading=section.querySelector('h2');heading.hidden=!group.label;if(heading.textContent!==group.label)heading.textContent=group.label||'';
   const grid=section.querySelector('.notes-grid'),wanted=new Set();
-  for(const [position,note] of group.notes.entries()) {
+  let cursor=grid.firstElementChild;
+  for(const note of group.notes) {
    wanted.add(note.id);const key=keyOf(note);let card=cards.get(note.id);
    if(!card||card.guardaRenderKey!==key){
     const holder=document.createElement('div');holder.innerHTML=renderCard(note);const next=holder.firstElementChild;
-    next.guardaRenderKey=key;if(card?.parentNode)card.replaceWith(next);card=next;cards.set(note.id,card);
+    next.guardaRenderKey=key;if(card?.parentNode){if(cursor===card)cursor=next;card.replaceWith(next);}card=next;cards.set(note.id,card);
    }
-   if(grid.children[position]!==card)grid.insertBefore(card,grid.children[position]||null);
+   if(cursor!==card)grid.insertBefore(card,cursor);
+   cursor=card.nextElementSibling;
   }
   layouts.push({grid,wanted});
  }

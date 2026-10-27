@@ -179,3 +179,8 @@ lectura/tachado no titila el aviso; movimiento reducido lo muestra estático.
 El selector sobre las notas permite ordenar por Modificación, Apertura o Creación. La flecha ↓ muestra las más recientes primero y ↑ las más antiguas. Las notas fijadas conservan su sección. El modo Manual conserva el orden previo; arrastrar una nota vuelve a ese modo. La selección y el sentido se recuerdan.
 
 La apertura se registra desde esta versión en este navegador, por separado del contenido: abrir sin editar no cambia la fecha de modificación ni provoca una subida a Drive. Las notas todavía no abiertas aparecen al final en ambos sentidos.
+
+### Controles y fluidez (v0.9.6)
+La barra de la colección agrupa título, cantidad de notas, criterio de orden, dirección y vista. En pantallas pequeñas la dirección utiliza una flecha con etiqueta accesible; en escritorio muestra también «Recientes» o «Antiguas». El cambio visual responde sin esperar la escritura de preferencias.
+
+El tablero reutiliza el filtrado y ordenamiento en cada actualización, agrupa las búsquedas rápidas por cuadro y mantiene las tarjetas existentes al reordenar. Las animaciones miden las posiciones antes de escribir estilos. El cambio entre lista y cuadrícula y el inicio evitan procesamientos repetidos. Se conservan las garantías de guardado y recuperación.

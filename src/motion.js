@@ -35,11 +35,13 @@ export function noteElement(area, id) {
 export function captureBoard(area, env = globalThis) {
   if (!canAnimate(env) || env.document.body.classList.contains('editor-open')) return new Map();
   const snapshot = new Map();
-  for (const card of area.querySelectorAll('[data-note]')) {
+  const cards=[...area.querySelectorAll('[data-note]')];
+  for (const card of cards) {
     const rect = card.getBoundingClientRect();
     if (visible(rect, env) && snapshot.size < 40) snapshot.set(card.dataset.note, { rect, card });
-    cancelMotion(card);
   }
+  // Finish every geometry read before cancelling animations (style writes).
+  for(const card of cards)cancelMotion(card);
   return snapshot;
 }
 export function animateBoard(area, before, env = globalThis) {
@@ -47,6 +49,8 @@ export function animateBoard(area, before, env = globalThis) {
   departures.clear();
   if (!canAnimate(env) || env.document.body.classList.contains('editor-open')) return;
   const cards = [...area.querySelectorAll('[data-note]')];
+  // Measure once, before ghost insertion or animation writes can invalidate layout.
+  const positions=new Map(cards.map(card=>[card,card.getBoundingClientRect()]));
   const currentIds = new Set(cards.map(card => card.dataset.note));
   // A short, inert visual copy lets archive/delete/filter actions leave smoothly
   // after the real DOM and stored data have already been updated.
@@ -68,7 +72,7 @@ export function animateBoard(area, before, env = globalThis) {
   let count = 0;
   for (const card of cards) {
     const previous = before.get(card.dataset.note);
-    const rect = card.getBoundingClientRect();
+    const rect = positions.get(card);
     if (!visible(rect, env) || count >= 40) continue;
     if (previous) {
       const x = previous.rect.left - rect.left, y = previous.rect.top - rect.top;

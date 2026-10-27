@@ -303,3 +303,15 @@ await test('sort controls persist direction and opening never edits a note',asyn
  $('note-sort').value='opened';await $('note-sort').onchange({target:$('note-sort')});await $('note-sort-direction').onclick();
  assert.ok(ids().indexOf(a.id)<ids().indexOf(b.id));
 });
+
+await test('sort direction responds immediately while preference storage is slow',async()=>{
+ const original=GuardaStore.prototype.setSetting;let release;
+ const gate=new Promise(resolve=>release=resolve);
+ GuardaStore.prototype.setSetting=async function(key,value){if(key==='noteSortDirection')await gate;return original.call(this,key,value);};
+ const wasAscending=$('note-sort-direction').classList.contains('is-ascending');
+ let pending;try{
+  pending=$('note-sort-direction').onclick();
+  assert.equal($('note-sort-direction').classList.contains('is-ascending'),!wasAscending);
+  assert.equal($('sort-direction-label').textContent,wasAscending?'Recientes':'Antiguas');
+ }finally{release();await pending;GuardaStore.prototype.setSetting=original;}
+});
