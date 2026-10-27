@@ -291,7 +291,7 @@ await test('sort controls persist direction and opening never edits a note',asyn
  document.querySelector('[data-route=notes]').dispatchEvent(new window.Event('click',{bubbles:true}));
  await create('Orden A');await pause(15);await create('Orden B');
  const all=await store.allNotes(),a=all.find(n=>n.title==='Orden A'),b=all.find(n=>n.title==='Orden B');
- $('note-sort').value='created';await $('note-sort').onchange({target:$('note-sort')});
+ $('note-sort').onclick();await $('popover').onclick({target:document.querySelector('[data-sort-option=created]')});
  const ids=()=>[...document.querySelectorAll('[data-note]')].map(n=>n.dataset.note);
  assert.ok(ids().indexOf(b.id)<ids().indexOf(a.id));
  await $('note-sort-direction').onclick();assert.ok(ids().indexOf(a.id)<ids().indexOf(b.id));
@@ -300,7 +300,7 @@ await test('sort controls persist direction and opening never edits a note',asyn
  await $('editor-close').onclick();await until(()=>$('editor-layer').hidden);
  assert.equal((await store.allNotes()).find(n=>n.id===a.id).updatedAt,a.updatedAt);
  assert.ok(JSON.parse(localStorage.getItem('guarda-note-opened-at'))[a.id]);
- $('note-sort').value='opened';await $('note-sort').onchange({target:$('note-sort')});await $('note-sort-direction').onclick();
+ $('note-sort').onclick();await $('popover').onclick({target:document.querySelector('[data-sort-option=opened]')});
  assert.ok(ids().indexOf(a.id)<ids().indexOf(b.id));
 });
 
@@ -314,4 +314,25 @@ await test('sort direction responds immediately while preference storage is slow
   assert.equal($('note-sort-direction').classList.contains('is-ascending'),!wasAscending);
   assert.equal($('sort-direction-label').textContent,wasAscending?'Recientes':'Antiguas');
  }finally{release();await pending;GuardaStore.prototype.setSetting=original;}
+});
+
+await test('reading imported plain-text notes preserves dates and ordering through close and reopen',async()=>{
+ const id='legacy-plain-reading',n={id,title:'Lectura de una nota antigua',body:'Primer párrafo\n\nSegundo párrafo',richBody:'',items:[],labels:[],attachments:[],isList:false,pinned:false,archived:false,deletedAt:null,color:'default',background:'none',createdAt:100,updatedAt:200,order:300};
+ await store.putNote(n);channels[0].onmessage({data:{type:'note',id}});await until(()=>document.querySelector(`[data-note="${id}"]`));
+ for(let i=0;i<2;i++){
+  document.querySelector(`[data-note="${id}"]`).dispatchEvent(new window.Event('click',{bubbles:true}));await until(()=>!$('editor-layer').hidden);
+  window.dispatchEvent(new window.Event('pagehide'));
+  await $('editor-close').onclick();await until(()=>$('editor-layer').hidden);
+  const saved=(await store.allNotes()).find(note=>note.id===id);assert.equal(saved.updatedAt,200);assert.equal(saved.order,300);assert.equal(saved.richBody,'');assert.equal(saved.body,n.body);
+ }
+});
+
+await test('sort menu marks the selected criterion, supports keyboard closing and remembers direction per criterion',async()=>{
+ $('note-sort').onclick();assert.equal($('note-sort').getAttribute('aria-expanded'),'true');assert.equal(document.querySelector('#sort-menu [aria-checked=true]').dataset.sortOption,'opened');
+ let prevented=false,stopped=false;
+ $('popover').onkeydown({key:'Escape',preventDefault(){prevented=true;},stopPropagation(){stopped=true;}});assert.ok(prevented&&stopped);assert.ok($('popover').hidden);assert.equal($('note-sort').getAttribute('aria-expanded'),'false');
+ $('note-sort').onclick();await $('popover').onclick({target:document.querySelector('[data-sort-option=created]')});assert.equal($('sort-direction-label').textContent,'Antiguas');
+ $('note-sort').onclick();await $('popover').onclick({target:document.querySelector('[data-sort-option=modified]')});assert.equal($('sort-direction-label').textContent,'Recientes');
+ document.dispatchEvent(new window.Event('click',{bubbles:true}));assert.ok($('popover').hidden);
+ const directions=await store.getSetting('noteSortDirections');assert.equal(directions.created,'asc');
 });

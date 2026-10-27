@@ -23,3 +23,7 @@ test('date sorting uses each selected timestamp in both directions without chang
  }
  assert.equal(JSON.stringify(notes),before);
 });
+
+test('manual order ignores an ascending date direction left over from another criterion',()=>{
+ const notes=[{id:'a',order:30},{id:'b',order:10}];assert.deepEqual(notes.sort((a,b)=>compareNotes(a,b,'manual','asc')).map(n=>n.id),['a','b']);
+});

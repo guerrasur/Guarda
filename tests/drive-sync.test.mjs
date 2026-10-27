@@ -1,5 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';import 'fake-indexeddb/auto';
 import {GuardaStore} from '../src/storage.js';import {DriveSync} from '../src/drive-sync.js';
+import {compareNotes} from '../src/note-board.js';
 import {mergeRecords,materialize,validateRelease} from '../src/cloud-merge.js';
 if(!globalThis.CustomEvent)globalThis.CustomEvent=class extends Event{constructor(t,o={}){super(t);this.detail=o.detail;}};
 const note=(id,body='Texto')=>({id,title:id,body,items:[],labels:[],attachments:[],isList:false,pinned:false,archived:false,deletedAt:null,createdAt:1,updatedAt:1,order:1});
@@ -137,4 +138,11 @@ test('multi-megabyte recordings synchronize to a second device with exact bytes'
  await a.sync.sync();await b.sync.sync();
  const restored=await b.store.getAttachment('large-audio');assert.deepEqual(new Uint8Array(await restored.blob.arrayBuffer()),bytes);
  assert.equal((await b.store.allNotes())[0].id,n.id);
+});
+
+test('startup sync and a fresh sync instance preserve historical modification dates and sort preferences',async t=>{
+ const f=await fixture(t),a=await f.device(),b=await f.device();
+ const old={...note('old','Nota de años atrás'),createdAt:100,updatedAt:200,order:9000};const recent={...note('recent','Última edición'),createdAt:300,updatedAt:500,order:1};
+ await a.store.putNotes([old,recent]);await a.sync.sync();await b.store.setSetting('noteSort','modified');await b.store.setSetting('noteSortDirection','desc');
+ for(let i=0;i<3;i++){b.sync=new DriveSync({store:b.store,client:b.client,env:b.sync.env});await b.sync.sync();const notes=await b.store.allNotes();assert.equal(notes.find(n=>n.id==='old').updatedAt,200);assert.equal(notes.find(n=>n.id==='recent').updatedAt,500);assert.deepEqual(notes.sort((a,b)=>compareNotes(a,b,'modified','desc')).map(n=>n.id),['recent','old']);assert.equal(await b.store.getSetting('noteSort'),'modified');assert.equal(await b.store.getSetting('noteSortDirection'),'desc');}
 });

@@ -184,3 +184,8 @@ La apertura se registra desde esta versión en este navegador, por separado del 
 La barra de la colección agrupa título, cantidad de notas, criterio de orden, dirección y vista. En pantallas pequeñas la dirección utiliza una flecha con etiqueta accesible; en escritorio muestra también «Recientes» o «Antiguas». El cambio visual responde sin esperar la escritura de preferencias.
 
 El tablero reutiliza el filtrado y ordenamiento en cada actualización, agrupa las búsquedas rápidas por cuadro y mantiene las tarjetas existentes al reordenar. Las animaciones miden las posiciones antes de escribir estilos. El cambio entre lista y cuadrícula y el inicio evitan procesamientos repetidos. Se conservan las garantías de guardado y recuperación.
+
+### Menú de orden y estabilidad (v0.9.7)
+El selector utiliza un menú propio con iconos, descripciones y marca de selección, adaptado al tema. Se opera con flechas, Inicio/Fin, Enter/Espacio y Escape; cierra al tocar afuera y devuelve el foco al selector al elegir. Cada criterio recuerda su dirección por separado y el orden manual no se invierte por una flecha de otro criterio.
+
+Leer o reanudar notas importadas de texto plano conserva su cuerpo original, su fecha de modificación y su posición: convertir el texto a HTML para mostrarlo ya no se considera una edición. Las fechas ya guardadas no se reconstruyen ni se reemplazan por estimaciones.
