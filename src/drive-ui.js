@@ -23,7 +23,7 @@ export function initDrive({store,isBusy,isUploadBusy=isBusy,onApplied,utility,cl
  const emit=()=>{controls();for(const listener of listeners)listener(getState());};
  const indicator=(state,text)=>{currentState=state;const el=$('drive-indicator');if(el){el.hidden=state==='hidden';el.dataset.state=state;el.title=text;el.setAttribute('aria-label',text);el.textContent='';}const profile=$('local-info');if(profile){profile.title=text||'Perfil y Google Drive';profile.setAttribute('aria-label','Perfil. '+(text||'Google Drive sin conectar'));}emit();};
  const status=text=>{message=text;for(const id of ['drive-status','drive-panel-status'])if($(id))$(id).textContent=text;emit();};
- const sync=new DriveSync({store,client,isBusy,isUploadBusy,onApplied,env,onStatus:status});
+ const sync=new DriveSync({store,client,isBusy,isUploadBusy,onApplied,env,onStatus:status,onUpload:()=>indicator('syncing','Guardando cambios en Google Drive…')});
  const background=()=>attempt().catch(()=>{});
  const queueRetry=(delay=1500)=>{env.clearTimeout(timer);retryAt=Date.now()+delay;timer=env.setTimeout(()=>{timer=null;retryAt=0;return background();},delay);};
  function defer(retry=false){status('Google Drive conectado. Guardado pendiente; se reintentará al terminar la operación actual.');indicator('pending',message);if(retry)queueRetry();return {deferred:true};}
@@ -73,7 +73,7 @@ export function initDrive({store,isBusy,isUploadBusy=isBusy,onApplied,utility,cl
    }
    preserveSession();
    if(isUploadBusy())return defer();
-   indicator('syncing','Sincronizando con Google Drive…');const started=changeVersion;
+   indicator('checking','Comprobando cambios en Google Drive…');const started=changeVersion;
    const result=await sync.sync();pendingDownload=!!result.uploadOnly;if(env.navigator?.onLine===false)return offline();backoff=3000;retryCount=0;
    if(started===changeVersion)indicator('synced',pendingDownload?'Cambios locales guardados en Google Drive':'Todo guardado en Google Drive');else {indicator('pending','Cambios pendientes de guardar en Google Drive');queueRetry();}return result;
   }catch(error){

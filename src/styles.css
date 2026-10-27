@@ -247,3 +247,5 @@ body.dark .notebook-layer,html[data-theme=dark] .notebook-layer{--nb-surround:va
 .sort-option-icon{display:grid;place-items:center;width:32px;height:32px;border-radius:10px;background:var(--hover);color:var(--muted);flex-shrink:0}.sort-option-icon svg{width:17px;height:17px}.sort-option-copy{display:flex;flex:1;min-width:0;flex-direction:column;gap:2px}.sort-option-copy>span{font-size:13px;font-weight:500;line-height:1.4}.sort-option-copy small{font-size:11px;color:var(--muted);line-height:1.4}.sort-option-check{display:flex;visibility:hidden;color:var(--text)}.sort-option-check svg{width:17px;height:17px}
 .sort-menu-option[aria-checked=true]{background:var(--active)}.sort-menu-option[aria-checked=true] .sort-option-check{visibility:visible}.sort-menu-option:hover,.sort-menu-option:focus-visible{background:var(--hover)}.sort-menu-option:focus-visible{box-shadow:inset 0 0 0 2px var(--accent)}
 @media(prefers-reduced-motion:reduce){.sort-chevron,.sort-menu-option{transition:none}}
+
+.profile-ring[data-state=checking]{border-color:var(--muted);opacity:.55}

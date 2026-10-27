@@ -146,3 +146,22 @@ test('startup sync and a fresh sync instance preserve historical modification da
  await a.store.putNotes([old,recent]);await a.sync.sync();await b.store.setSetting('noteSort','modified');await b.store.setSetting('noteSortDirection','desc');
  for(let i=0;i<3;i++){b.sync=new DriveSync({store:b.store,client:b.client,env:b.sync.env});await b.sync.sync();const notes=await b.store.allNotes();assert.equal(notes.find(n=>n.id==='old').updatedAt,200);assert.equal(notes.find(n=>n.id==='recent').updatedAt,500);assert.deepEqual(notes.sort((a,b)=>compareNotes(a,b,'modified','desc')).map(n=>n.id),['recent','old']);assert.equal(await b.store.getSetting('noteSort'),'modified');assert.equal(await b.store.getSetting('noteSortDirection'),'desc');}
 });
+
+const stampSnapshots=(f,device)=>{device.client.listSnapshots=async()=>[...f.files].map(([id,payload])=>({id,modifiedTime:JSON.stringify(payload)}));};
+test('unchanged checks survive reload and appearance changes without exporting, reading snapshots or uploading',async t=>{
+ const f=await fixture(t),a=await f.device();stampSnapshots(f,a);await a.store.putNote(note('stable'));await a.sync.sync();await a.sync.sync();const uploads=f.uploads,revision=(await a.store.syncCheckpoint('person-1')).contentRevision;
+ const exportBackup=a.store.exportBackup,read=a.client.readSnapshot;
+ a.store.exportBackup=async()=>{throw Error('Unchanged checks must not serialize a backup');};a.client.readSnapshot=async()=>{throw Error('Unchanged checks must not download snapshots');};a.client.prepareMedia=async()=>{throw Error('Unchanged checks must not process attachments');};
+ try{for(let i=0;i<3;i++){await a.store.setSetting('theme',i%2?'light':'dark');a.sync=new DriveSync({store:a.store,client:a.client,env:a.sync.env});const result=await a.sync.sync();assert.equal(result.checkedOnly,true);assert.equal(result.uploaded,false);assert.equal((await a.store.syncCheckpoint('person-1')).contentRevision,revision);}assert.equal(f.uploads,uploads);}
+ finally{a.store.exportBackup=exportBackup;a.client.readSnapshot=read;delete a.client.prepareMedia;}
+ await a.store.putNote(note('stable','Real edit'));const changed=await a.sync.sync();assert.equal(changed.uploaded,true);assert.equal(f.uploads,uploads+1);
+});
+test('remote changes and deleted snapshots invalidate the quick check',async t=>{
+ const f=await fixture(t),a=await f.device(),b=await f.device();stampSnapshots(f,a);stampSnapshots(f,b);await a.store.putNote(note('shared','Before'));await a.sync.sync();await a.sync.sync();assert.equal((await a.sync.sync()).checkedOnly,true);
+ await b.sync.sync();await b.store.putNote(note('shared','From another device'));await b.sync.sync();const pulled=await a.sync.sync();assert.notEqual(pulled.checkedOnly,true);assert.equal((await a.store.allNotes())[0].body,'From another device');
+ await a.sync.sync();assert.equal((await a.sync.sync()).checkedOnly,true);const device=await a.store.getSetting('drive-device');for(const [id,payload] of f.files)if(payload.device===device)f.files.delete(id);const before=f.uploads;await a.sync.sync();assert.equal(f.uploads,before+1);
+});
+test('local edits during a metadata check are uploaded rather than skipped',async t=>{
+ const f=await fixture(t),a=await f.device();stampSnapshots(f,a);await a.store.putNote(note('race-check','Before'));await a.sync.sync();await a.sync.sync();const list=a.client.listSnapshots;let once=true;
+ a.client.listSnapshots=async()=>{const files=await list();if(once){once=false;await a.store.putNote(note('race-check','Typed during the check'));}return files;};const before=f.uploads;const result=await a.sync.sync();assert.equal(result.uploaded,true);assert.equal(f.uploads,before+1);assert.equal((await a.store.allNotes())[0].body,'Typed during the check');
+});

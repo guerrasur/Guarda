@@ -29,9 +29,9 @@ test('profile ring clears green for pending edits and never reports an in-flight
  const original=DriveSync.prototype.sync;let finish;DriveSync.prototype.sync=()=>new Promise(resolve=>finish=resolve);
  try{
   const f=fixture({});await f.ui.open();await settle();f.document.getElementById('drive-connect').onclick();await settle();await settle();
-  const badge=f.document.getElementById('drive-indicator');assert.equal(badge.dataset.state,'syncing');assert.equal(f.ui.getState().connected,true);
+  const badge=f.document.getElementById('drive-indicator');assert.equal(badge.dataset.state,'checking');assert.equal(f.ui.getState().connected,true);
   f.change();assert.equal(badge.dataset.state,'pending');finish({});await settle();assert.equal(badge.dataset.state,'pending');
-  const saved=f.ui.sync();assert.equal(badge.dataset.state,'syncing');finish({});await saved;assert.equal(badge.dataset.state,'synced');assert.equal(badge.textContent,'');
+  const saved=f.ui.sync();assert.equal(badge.dataset.state,'checking');finish({});await saved;assert.equal(badge.dataset.state,'synced');assert.equal(badge.textContent,'');
   f.ui.markPending();assert.equal(badge.dataset.state,'pending');
   await f.ui.open();await settle();await f.document.getElementById('drive-disconnect').onclick();assert.equal(f.ui.getState().enabled,false);
  }finally{DriveSync.prototype.sync=original;}

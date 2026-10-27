@@ -88,7 +88,10 @@ export class GuardaStore extends EventTarget {
     try {
       const revision=mode==='readwrite'?(await requestResult(transaction.objectStore('settings').get('local-revision')))?.value||0:0;
       const result = await operation(transaction);
-      if(mode==='readwrite')transaction.objectStore('settings').put({id:'local-revision',value:revision+1});
+      if(mode==='readwrite'){
+        const settings=transaction.objectStore('settings');settings.put({id:'local-revision',value:revision+1});
+        if(stores.some(name=>['notes','labels','attachments'].includes(name))&&(detail?.type!=='cloud-apply'||detail.contentChanged)){const contentRevision=(await requestResult(settings.get('drive-content-revision')))?.value||0;settings.put({id:'drive-content-revision',value:contentRevision+1});}
+      }
       await done;
       if (detail) { this.dispatchEvent(new CustomEvent('change', { detail })); this.channel?.postMessage(detail); }
       return result;
@@ -208,16 +211,18 @@ export class GuardaStore extends EventTarget {
     return record ? record.value : fallback;
   }
   setSetting(key, value) { return this._run(['settings'], 'readwrite', tx => requestResult(tx.objectStore('settings').put({ id: key, value })), { type: 'setting', id: key }); }
+  async syncCheckpoint(accountId){return this._run(['settings'],'readonly',async tx=>{const settings=tx.objectStore('settings');const [revision,state]=await Promise.all([requestResult(settings.get('drive-content-revision')),requestResult(settings.get('drive-state:'+accountId))]);return {contentRevision:revision?.value||0,state:state?.value||{}};});}
   async exportBackup({accountId}={}) {
     const snapshot = await this._run(STORES, 'readonly', async tx => {
       const records = await Promise.all(STORES.map(name => requestResult(tx.objectStore(name).getAll())));
       return Object.fromEntries(STORES.map((name, index) => [name, records[index]]));
     });
+    const localContentRevision=snapshot.settings.find(r=>r.id==='drive-content-revision')?.value||0;
     const localRevision=snapshot.settings.find(r=>r.id==='local-revision')?.value||0;
     const cloudState=accountId?snapshot.settings.find(r=>r.id==='drive-state:'+accountId)?.value:undefined;
     snapshot.settings=snapshot.settings.filter(r=>!r.id.startsWith('drive-')&&r.id!=='local-revision');
     snapshot.attachments = await Promise.all(snapshot.attachments.map(async ({ blob, ...attachment }) => ({ ...attachment, data: await encodeBlob(blob) })));
-    return { format: 'guarda-backup', version: 1, exportedAt: Date.now(), localRevision, ...(accountId?{cloudState}:{}), ...snapshot };
+    return { format: 'guarda-backup', version: 1, exportedAt: Date.now(), localRevision, localContentRevision, ...(accountId?{cloudState}:{}), ...snapshot };
   }
   async validateBackup(data) {
     assert(object(data) && data.format === 'guarda-backup' && data.version === 1, 'La copia no tiene un formato de Guarda compatible.');

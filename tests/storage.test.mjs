@@ -140,3 +140,10 @@ test('large attachments validate without regex stack overflow and malformed base
     assert.equal(result.attachments[0].blob.size, Buffer.from(valid, 'base64').length);
   }
 });
+
+test('sync content revision ignores appearance and session writes and survives reopening the database',async t=>{
+ const store=await open(t);assert.equal((await store.syncCheckpoint('person')).contentRevision,0);await store.putNote(note());const revision=(await store.syncCheckpoint('person')).contentRevision;assert.equal(revision,1);
+ await store.setSetting('view','list');await store.setSetting('drive-session',{token:'test-only'});assert.equal((await store.syncCheckpoint('person')).contentRevision,revision);
+ const second=new GuardaStore({name:store.name,broadcast:false});t.after(()=>second.close());assert.equal((await second.syncCheckpoint('person')).contentRevision,revision);await second.putLabel({id:'new-label',name:'Etiqueta'});assert.equal((await store.syncCheckpoint('person')).contentRevision,revision+1);
+ const backup=await store.exportBackup();assert.ok(!backup.settings.some(setting=>setting.id==='drive-content-revision'));
+});

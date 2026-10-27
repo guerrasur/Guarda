@@ -189,3 +189,8 @@ El tablero reutiliza el filtrado y ordenamiento en cada actualización, agrupa l
 El selector utiliza un menú propio con iconos, descripciones y marca de selección, adaptado al tema. Se opera con flechas, Inicio/Fin, Enter/Espacio y Escape; cierra al tocar afuera y devuelve el foco al selector al elegir. Cada criterio recuerda su dirección por separado y el orden manual no se invierte por una flecha de otro criterio.
 
 Leer o reanudar notas importadas de texto plano conserva su cuerpo original, su fecha de modificación y su posición: convertir el texto a HTML para mostrarlo ya no se considera una edición. Las fechas ya guardadas no se reconstruyen ni se reemplazan por estimaciones.
+
+### Comprobaciones de Drive sin preparar copias (v0.9.8)
+Al volver a la app se consulta la lista de archivos de sincronización de Drive. Si sus identificadores y fechas de modificación coinciden con la última revisión completa y no cambió el contenido local, se termina sin exportar la base, procesar adjuntos, descargar las copias ni subir archivos. La revisión persiste entre reinicios y no se invalida por cambios de apariencia o renovación de sesión. Si faltan metadatos o aparece un cambio, se ejecuta la sincronización completa con las mismas protecciones de concurrencia y recuperación.
+
+El indicador distingue «Comprobando cambios» de «Guardando cambios»: la animación de subida aparece solamente cuando se va a escribir una copia.
